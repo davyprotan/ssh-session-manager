@@ -29,7 +29,7 @@ export default function ProfilePicker({ profiles, selectedId, onSelect, onNewPro
         </div>
         <div className="text-center">
           <p className="font-medium text-sm" style={{ color: "var(--foreground)" }}>Create your first profile</p>
-          <p className="text-xs mt-0.5" style={{ color: "var(--muted-foreground)" }}>
+          <p className="text-xs mt-0.5" style={{ color: "var(--muted-fg)" }}>
             A profile stores your username + SSH key or password
           </p>
         </div>
@@ -45,19 +45,19 @@ export default function ProfilePicker({ profiles, selectedId, onSelect, onNewPro
           onClick={() => onSelect(null)}
           className="group flex items-center gap-3 rounded-xl border px-3 py-2.5 transition-all duration-150 text-left"
           style={{
-            background: selectedId === null ? "rgba(255,255,255,0.04)" : "transparent",
-            borderColor: selectedId === null ? "rgba(255,255,255,0.15)" : "var(--border)",
+            background: selectedId === null ? "color-mix(in srgb, var(--fg) 5%, transparent)" : "transparent",
+            borderColor: selectedId === null ? "color-mix(in srgb, var(--fg) 18%, transparent)" : "var(--border)",
           }}
         >
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg" style={{ background: "rgba(255,255,255,0.05)" }}>
-            <span className="text-xs" style={{ color: "var(--muted-foreground)" }}>—</span>
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg" style={{ background: "color-mix(in srgb, var(--fg) 6%, transparent)" }}>
+            <span className="text-sm font-medium" style={{ color: "var(--muted-fg)" }}>—</span>
           </div>
           <div className="flex-1">
-            <p className="text-sm font-medium" style={{ color: "var(--foreground)" }}>No profile</p>
-            <p className="text-xs" style={{ color: "var(--muted-foreground)" }}>Use system SSH defaults</p>
+            <p className="text-[14px] font-semibold" style={{ color: "var(--foreground)" }}>No profile</p>
+            <p className="text-[12.5px] mt-0.5" style={{ color: "var(--muted-fg)" }}>Use system SSH defaults</p>
           </div>
           {selectedId === null && (
-            <Check className="h-4 w-4 shrink-0" style={{ color: "var(--muted-foreground)" }} />
+            <Check className="h-4 w-4 shrink-0" style={{ color: "var(--muted-fg)" }} />
           )}
         </button>
       )}
@@ -91,17 +91,17 @@ export default function ProfilePicker({ profiles, selectedId, onSelect, onNewPro
 
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-1.5">
-                <p className="text-sm font-semibold truncate" style={{ color: "var(--foreground)" }}>{p.name}</p>
+                <p className="text-[14px] font-semibold truncate" style={{ color: "var(--foreground)" }}>{p.name}</p>
                 {p.is_default ? (
-                  <Star className="h-3 w-3 shrink-0 fill-current" style={{ color }} />
+                  <Star className="h-3.5 w-3.5 shrink-0 fill-current" style={{ color }} />
                 ) : null}
               </div>
-              <div className="flex items-center gap-1.5 mt-0.5">
-                <span className="text-xs font-mono truncate" style={{ color: "var(--muted-foreground)" }}>{p.username}</span>
+              <div className="flex items-center gap-1.5 mt-1">
+                <span className="text-[12.5px] font-mono truncate" style={{ color: "var(--muted-fg)" }}>{p.username}</span>
                 {p.key_path && !compact && (
                   <>
-                    <span style={{ color: "rgba(139,148,158,0.4)" }}>·</span>
-                    <span className="text-xs font-mono truncate" style={{ color: "rgba(139,148,158,0.6)" }}>{p.key_path}</span>
+                    <span style={{ color: "var(--subtle-fg)" }}>·</span>
+                    <span className="text-[12.5px] font-mono truncate" style={{ color: "var(--subtle-fg)" }}>{p.key_path}</span>
                   </>
                 )}
               </div>
@@ -125,14 +125,14 @@ export default function ProfilePicker({ profiles, selectedId, onSelect, onNewPro
           onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.borderColor = "color-mix(in srgb, var(--accent) 40%, transparent)"; (e.currentTarget as HTMLButtonElement).style.background = "color-mix(in srgb, var(--accent) 5%, transparent)"; }}
           onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.borderColor = "var(--border)"; (e.currentTarget as HTMLButtonElement).style.background = "transparent"; }}
         >
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition-colors" style={{ background: "rgba(255,255,255,0.03)" }}>
-            <Plus className="h-4 w-4 transition-colors" style={{ color: "var(--muted-foreground)" }} />
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition-colors" style={{ background: "color-mix(in srgb, var(--fg) 4%, transparent)" }}>
+            <Plus className="h-4 w-4 transition-colors" style={{ color: "var(--muted-fg)" }} />
           </div>
           <div className="flex-1">
-            <p className="text-sm font-medium transition-colors" style={{ color: "var(--foreground)" }}>
+            <p className="text-[14px] font-semibold transition-colors" style={{ color: "var(--foreground)" }}>
               New profile
             </p>
-            <p className="text-xs" style={{ color: "var(--muted-foreground)" }}>Add another set of credentials</p>
+            <p className="text-[12.5px] mt-0.5" style={{ color: "var(--muted-fg)" }}>Add another set of credentials</p>
           </div>
         </button>
       )}

@@ -39,7 +39,7 @@ export default function ProfileCard({ profile, sessionCount, onEdit, onDelete }:
       {/* Info */}
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2 flex-wrap">
-          <span className="font-semibold text-sm" style={{ color: "var(--foreground)" }}>{profile.name}</span>
+          <span className="font-semibold text-[15px]" style={{ color: "var(--foreground)" }}>{profile.name}</span>
           {profile.is_default ? (
             <span className="flex items-center gap-1 text-xs font-medium rounded-md px-1.5 py-0.5" style={{ background: `${color}15`, color }}>
               <Star className="h-3 w-3 fill-current" />
@@ -53,21 +53,21 @@ export default function ProfileCard({ profile, sessionCount, onEdit, onDelete }:
             {authLabel}
           </span>
           {sessionCount > 0 && (
-            <span className="flex items-center gap-1 text-xs ml-auto" style={{ color: "rgba(139,148,158,0.5)" }}>
+            <span className="flex items-center gap-1 text-xs ml-auto" style={{ color: "var(--subtle-fg)" }}>
               <Server className="h-3 w-3" />
               {sessionCount} session{sessionCount !== 1 ? "s" : ""}
             </span>
           )}
         </div>
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-1">
-          <span className="text-xs font-mono" style={{ color: "var(--muted-foreground)" }}>{profile.username}</span>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-1.5">
+          <span className="text-[13px] font-mono" style={{ color: "var(--muted-fg)" }}>{profile.username}</span>
           {profile.port !== 22 && (
-            <span className="flex items-center gap-0.5 text-xs" style={{ color: "rgba(139,148,158,0.5)" }}>
+            <span className="flex items-center gap-0.5 text-[12.5px]" style={{ color: "var(--subtle-fg)" }}>
               <Hash className="h-3 w-3" />{profile.port}
             </span>
           )}
           {profile.key_path && (
-            <span className="text-xs font-mono truncate max-w-64" style={{ color: "rgba(139,148,158,0.4)" }}>{profile.key_path}</span>
+            <span className="text-[12.5px] font-mono truncate max-w-72" style={{ color: "var(--subtle-fg)" }}>{profile.key_path}</span>
           )}
         </div>
       </div>
@@ -78,13 +78,13 @@ export default function ProfileCard({ profile, sessionCount, onEdit, onDelete }:
           variant="ghost"
           size="icon"
           className="h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity"
-          style={{ color: "var(--muted-foreground)" }}
+          style={{ color: "var(--muted-fg)" }}
           onClick={() => onEdit(profile)}
         >
           <Pencil className="h-3.5 w-3.5" />
         </Button>
         <DropdownMenu>
-          <DropdownMenuTrigger className="inline-flex h-8 w-8 items-center justify-center rounded-md transition-colors" style={{ color: "rgba(139,148,158,0.5)" }}>
+          <DropdownMenuTrigger className="inline-flex h-8 w-8 items-center justify-center rounded-md transition-colors" style={{ color: "var(--subtle-fg)" }}>
             <MoreVertical className="h-4 w-4" />
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">

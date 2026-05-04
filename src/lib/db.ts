@@ -24,6 +24,14 @@ export function getDb(): Database.Database {
 
 function migrate(db: Database.Database) {
   db.exec(`
+    CREATE TABLE IF NOT EXISTS folders (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL UNIQUE,
+      color TEXT NOT NULL DEFAULT 'cyan',
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
     CREATE TABLE IF NOT EXISTS profiles (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL UNIQUE,
@@ -34,6 +42,11 @@ function migrate(db: Database.Database) {
       port INTEGER NOT NULL DEFAULT 22,
       color TEXT NOT NULL DEFAULT 'cyan',
       is_default INTEGER NOT NULL DEFAULT 0,
+      agent_forwarding INTEGER NOT NULL DEFAULT 0,
+      compression INTEGER NOT NULL DEFAULT 0,
+      server_alive_interval INTEGER NOT NULL DEFAULT 0,
+      extra_args TEXT,
+      uses_keychain INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
@@ -44,6 +57,8 @@ function migrate(db: Database.Database) {
       host TEXT NOT NULL,
       port INTEGER NOT NULL DEFAULT 22,
       profile_id INTEGER REFERENCES profiles(id) ON DELETE SET NULL,
+      folder_id INTEGER REFERENCES folders(id) ON DELETE SET NULL,
+      jump_host TEXT,
       tags TEXT NOT NULL DEFAULT '[]',
       notes TEXT,
       last_connected_at TEXT,
@@ -53,13 +68,24 @@ function migrate(db: Database.Database) {
   `);
 
   // Idempotent ALTERs for existing DBs
-  const cols = db.prepare("PRAGMA table_info(profiles)").all() as { name: string }[];
-  const colNames = new Set(cols.map(c => c.name));
-  if (!colNames.has("color")) db.exec("ALTER TABLE profiles ADD COLUMN color TEXT NOT NULL DEFAULT 'cyan'");
-  if (!colNames.has("is_default")) db.exec("ALTER TABLE profiles ADD COLUMN is_default INTEGER NOT NULL DEFAULT 0");
+  function ensureColumn(table: string, column: string, ddl: string) {
+    const cols = db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
+    if (!cols.some(c => c.name === column)) {
+      db.exec(`ALTER TABLE ${table} ADD COLUMN ${ddl}`);
+    }
+  }
+
+  ensureColumn('profiles', 'color', "color TEXT NOT NULL DEFAULT 'cyan'");
+  ensureColumn('profiles', 'is_default', 'is_default INTEGER NOT NULL DEFAULT 0');
+  ensureColumn('profiles', 'agent_forwarding', 'agent_forwarding INTEGER NOT NULL DEFAULT 0');
+  ensureColumn('profiles', 'compression', 'compression INTEGER NOT NULL DEFAULT 0');
+  ensureColumn('profiles', 'server_alive_interval', 'server_alive_interval INTEGER NOT NULL DEFAULT 0');
+  ensureColumn('profiles', 'extra_args', 'extra_args TEXT');
+  ensureColumn('profiles', 'uses_keychain', 'uses_keychain INTEGER NOT NULL DEFAULT 0');
+  ensureColumn('sessions', 'folder_id', 'folder_id INTEGER REFERENCES folders(id) ON DELETE SET NULL');
+  ensureColumn('sessions', 'jump_host', 'jump_host TEXT');
 }
 
 export { PROFILE_COLORS, COLOR_HEX } from './profile-colors';
 export type { ProfileColor } from './profile-colors';
-
-export type { AuthType, Profile, Session } from './types';
+export type { AuthType, Profile, Session, Folder } from './types';

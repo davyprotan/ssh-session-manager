@@ -110,10 +110,39 @@
   * {
     @apply border-border outline-ring/50;
   }
-  body {
-    @apply bg-background text-foreground;
-  }
   html {
     @apply font-sans;
+    font-feature-settings: "cv11", "ss01", "ss03", "cv01";
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-size: 14px;
+    line-height: 1.55;
+    letter-spacing: -0.005em;
+  }
+  /* Slightly heavier body weight for better dark-mode legibility */
+  body, p, span, button, input, textarea, select {
+    font-weight: 400;
+  }
+  h1, h2, h3, h4, h5, h6, .font-semibold {
+    letter-spacing: -0.015em;
+  }
+  /* Tabular nums for any numeric data (ports, counts, timestamps) */
+  .font-mono, .tabular-nums {
+    font-variant-numeric: tabular-nums;
+  }
+  /* Smooth, subtle scrollbars on dark themes */
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb {
+    background: var(--border);
+    border-radius: 10px;
+    border: 2px solid var(--bg);
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--muted-fg);
   }
 }

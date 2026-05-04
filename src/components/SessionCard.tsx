@@ -3,7 +3,7 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { Terminal, Key, Lock, MoreVertical, Pencil, Trash2, Copy, Clock, UserRound, ShieldCheck } from "lucide-react";
+import { Terminal, Key, Lock, MoreVertical, Pencil, Trash2, Copy, Clock, UserRound, ShieldCheck, Files, Network, FolderClosed } from "lucide-react";
 import { COLOR_HEX, type ProfileColor } from "@/lib/profile-colors";
 import type { Session } from "@/lib/types";
 import { toast } from "sonner";
@@ -13,6 +13,7 @@ interface Props {
   onEdit: (s: Session) => void;
   onDelete: (s: Session) => void;
   onConnect: (s: Session) => void;
+  onClone: (s: Session) => void;
 }
 
 function timeAgo(dateStr: string | null): string {
@@ -26,7 +27,7 @@ function timeAgo(dateStr: string | null): string {
   return `${Math.floor(h / 24)}d ago`;
 }
 
-export default function SessionCard({ session, onEdit, onDelete, onConnect }: Props) {
+export default function SessionCard({ session, onEdit, onDelete, onConnect, onClone }: Props) {
   const tags: string[] = JSON.parse(session.tags || "[]");
   const accent = session.profile_color ? COLOR_HEX[session.profile_color as ProfileColor] || COLOR_HEX.cyan : COLOR_HEX.cyan;
 
@@ -55,18 +56,24 @@ export default function SessionCard({ session, onEdit, onDelete, onConnect }: Pr
         {/* Header */}
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
-            <h3 className="font-semibold text-sm leading-tight truncate" style={{ color: "var(--foreground)" }}>
+            <h3 className="font-semibold text-[15px] leading-snug truncate" style={{ color: "var(--foreground)" }}>
               {session.name}
             </h3>
-            <p className="text-xs font-mono mt-0.5 truncate" style={{ color: accent }}>
+            {session.folder_name && (
+              <div className="flex items-center gap-1 mt-1 text-[11px]" style={{ color: COLOR_HEX[(session.folder_color as ProfileColor) || 'cyan'] || COLOR_HEX.cyan }}>
+                <FolderClosed className="h-3 w-3" />
+                {session.folder_name}
+              </div>
+            )}
+            <p className="text-[13px] font-mono mt-1 truncate" style={{ color: accent }}>
               {session.host}
-              <span style={{ color: "var(--muted-foreground)", opacity: 0.6 }}>
+              <span style={{ color: "var(--subtle-fg)" }}>
                 {session.port !== 22 ? `:${session.port}` : ""}
               </span>
             </p>
           </div>
           <DropdownMenu>
-            <DropdownMenuTrigger className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-colors" style={{ color: "var(--muted-foreground)" }}>
+            <DropdownMenuTrigger className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-colors" style={{ color: "var(--muted-fg)" }}>
               <MoreVertical className="h-3.5 w-3.5" />
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="min-w-44">
@@ -75,6 +82,9 @@ export default function SessionCard({ session, onEdit, onDelete, onConnect }: Pr
               </DropdownMenuItem>
               <DropdownMenuItem onClick={copyCommand}>
                 <Copy className="h-3.5 w-3.5 mr-2" /> Copy SSH command
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => onClone(session)}>
+                <Files className="h-3.5 w-3.5 mr-2" /> Duplicate
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={() => onEdit(session)}>
@@ -89,20 +99,28 @@ export default function SessionCard({ session, onEdit, onDelete, onConnect }: Pr
 
         {/* Profile pill */}
         {session.profile_name ? (
-          <div className="flex items-center gap-1.5 rounded-md px-2 py-1.5 w-fit max-w-full" style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.06)" }}>
+          <div className="flex items-center gap-1.5 rounded-md px-2 py-1 w-fit max-w-full" style={{ background: "color-mix(in srgb, var(--fg) 5%, transparent)", border: "1px solid var(--border)" }}>
             {session.profile_auth_type === "password"
               ? <Lock className="h-3 w-3 shrink-0" style={{ color: "#fbbf24" }} />
               : session.profile_auth_type === "key_with_passphrase"
               ? <ShieldCheck className="h-3 w-3 shrink-0" style={{ color: accent }} />
               : <Key className="h-3 w-3 shrink-0" style={{ color: accent }} />}
-            <span className="text-xs truncate" style={{ color: "var(--muted-foreground)" }}>{session.profile_name}</span>
-            <span style={{ color: "rgba(139,148,158,0.4)", fontSize: "10px" }}>·</span>
-            <UserRound className="h-3 w-3 shrink-0" style={{ color: "rgba(139,148,158,0.5)" }} />
-            <span className="text-xs font-mono truncate" style={{ color: "rgba(230,237,243,0.6)" }}>{session.profile_username}</span>
+            <span className="text-[12.5px] truncate" style={{ color: "var(--muted-fg)" }}>{session.profile_name}</span>
+            <span style={{ color: "var(--subtle-fg)", fontSize: "10px" }}>·</span>
+            <UserRound className="h-3 w-3 shrink-0" style={{ color: "var(--subtle-fg)" }} />
+            <span className="text-[12.5px] font-mono truncate" style={{ color: "var(--muted-fg)" }}>{session.profile_username}</span>
           </div>
         ) : (
-          <div className="flex items-center gap-1.5 rounded-md px-2 py-1.5 w-fit" style={{ border: "1px dashed rgba(255,255,255,0.08)" }}>
-            <span className="text-xs italic" style={{ color: "rgba(139,148,158,0.4)" }}>No profile</span>
+          <div className="flex items-center gap-1.5 rounded-md px-2 py-1 w-fit" style={{ border: "1px dashed var(--border)" }}>
+            <span className="text-[12.5px] italic" style={{ color: "var(--subtle-fg)" }}>No profile</span>
+          </div>
+        )}
+
+        {/* Jump host */}
+        {session.jump_host && (
+          <div className="flex items-center gap-1 text-[12px]" style={{ color: "var(--muted-fg)" }}>
+            <Network className="h-3 w-3" style={{ color: "var(--subtle-fg)" }} />
+            via <span className="font-mono">{session.jump_host}</span>
           </div>
         )}
 
@@ -114,7 +132,7 @@ export default function SessionCard({ session, onEdit, onDelete, onConnect }: Pr
                 key={tag}
                 variant="outline"
                 className="text-xs px-1.5 py-0 h-5 font-normal"
-                style={{ borderColor: "rgba(255,255,255,0.08)", color: "rgba(139,148,158,0.8)", background: "rgba(255,255,255,0.03)" }}
+                style={{ borderColor: "var(--border)", color: "var(--muted-fg)", background: "color-mix(in srgb, var(--fg) 4%, transparent)" }}
               >
                 {tag}
               </Badge>
@@ -124,20 +142,20 @@ export default function SessionCard({ session, onEdit, onDelete, onConnect }: Pr
 
         {/* Notes */}
         {session.notes && (
-          <p className="text-xs line-clamp-1 leading-relaxed" style={{ color: "rgba(139,148,158,0.6)" }}>{session.notes}</p>
+          <p className="text-[12.5px] line-clamp-1 leading-relaxed" style={{ color: "var(--muted-fg)" }}>{session.notes}</p>
         )}
 
         {/* Footer */}
-        <div className="flex items-center justify-between pt-3 mt-auto" style={{ borderTop: "1px solid rgba(48,54,61,0.6)" }}>
-          <div className="flex items-center gap-1 text-xs" style={{ color: "rgba(139,148,158,0.4)" }}>
+        <div className="flex items-center justify-between pt-3 mt-auto" style={{ borderTop: "1px solid var(--border)" }}>
+          <div className="flex items-center gap-1 text-[12px]" style={{ color: "var(--subtle-fg)" }}>
             <Clock className="h-3 w-3" />
             {timeAgo(session.last_connected_at)}
           </div>
           <button
             onClick={() => onConnect(session)}
-            className="flex items-center gap-1.5 text-xs font-medium rounded-lg px-3 py-1.5 transition-all duration-150"
-            style={{ background: `${accent}1a`, color: accent, border: `1px solid ${accent}33` }}
-            onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = `${accent}2e`; }}
+            className="flex items-center gap-1.5 text-[12.5px] font-semibold rounded-lg px-3 py-1.5 transition-all duration-150"
+            style={{ background: `${accent}1a`, color: accent, border: `1px solid ${accent}40` }}
+            onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = `${accent}33`; }}
             onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = `${accent}1a`; }}
           >
             <Terminal className="h-3 w-3" />

@@ -67,7 +67,7 @@ export default function QuickConnectDialog({ open, onClose, profiles, onProfiles
               </div>
               Quick Connect
             </DialogTitle>
-            <DialogDescription style={{ color: "var(--muted-foreground)" }}>
+            <DialogDescription style={{ color: "var(--muted-fg)" }}>
               Connect to any host without saving it. Pick which credentials to use.
             </DialogDescription>
           </DialogHeader>
@@ -75,7 +75,7 @@ export default function QuickConnectDialog({ open, onClose, profiles, onProfiles
           <div className="space-y-4 py-1">
             <div className="grid grid-cols-3 gap-2">
               <div className="col-span-2 space-y-1.5">
-                <Label className="text-xs uppercase tracking-wide" style={{ color: "var(--muted-foreground)" }}>Host</Label>
+                <Label className="text-[12.5px] font-semibold" style={{ color: "var(--muted-fg)" }}>Host</Label>
                 <Input
                   autoFocus
                   className="font-mono"
@@ -86,13 +86,13 @@ export default function QuickConnectDialog({ open, onClose, profiles, onProfiles
                 />
               </div>
               <div className="space-y-1.5">
-                <Label className="text-xs uppercase tracking-wide" style={{ color: "var(--muted-foreground)" }}>Port</Label>
+                <Label className="text-[12.5px] font-semibold" style={{ color: "var(--muted-fg)" }}>Port</Label>
                 <Input type="number" placeholder="22" value={port} onChange={e => setPort(e.target.value)} />
               </div>
             </div>
 
             <div className="space-y-2">
-              <Label className="text-xs uppercase tracking-wide" style={{ color: "var(--muted-foreground)" }}>Use credentials from</Label>
+              <Label className="text-[12.5px] font-semibold" style={{ color: "var(--muted-fg)" }}>Use credentials from</Label>
               <ProfilePicker
                 profiles={profiles}
                 selectedId={profileId}

@@ -7,10 +7,12 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import { X } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { X, FolderClosed, Network } from "lucide-react";
 import ProfilePicker from "./ProfilePicker";
 import ProfileDialog from "./ProfileDialog";
-import type { Profile, Session } from "@/lib/types";
+import type { Profile, Session, Folder } from "@/lib/types";
+import { COLOR_HEX, type ProfileColor } from "@/lib/profile-colors";
 
 interface Props {
   open: boolean;
@@ -18,20 +20,26 @@ interface Props {
   onSave: () => void;
   session?: Session | null;
   profiles: Profile[];
+  folders: Folder[];
   onProfilesChanged: () => void;
+  onFoldersChanged: () => void;
 }
 
-export default function SessionDialog({ open, onClose, onSave, session, profiles, onProfilesChanged }: Props) {
+export default function SessionDialog({ open, onClose, onSave, session, profiles, folders, onProfilesChanged, onFoldersChanged }: Props) {
   const [name, setName] = useState("");
   const [host, setHost] = useState("");
   const [port, setPort] = useState("22");
   const [profileId, setProfileId] = useState<number | null>(null);
+  const [folderId, setFolderId] = useState<string>("");
+  const [jumpHost, setJumpHost] = useState("");
   const [notes, setNotes] = useState("");
   const [tagInput, setTagInput] = useState("");
   const [tags, setTags] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [profileDialogOpen, setProfileDialogOpen] = useState(false);
+  const [newFolderInput, setNewFolderInput] = useState(false);
+  const [newFolderName, setNewFolderName] = useState("");
 
   useEffect(() => {
     if (session) {
@@ -39,19 +47,24 @@ export default function SessionDialog({ open, onClose, onSave, session, profiles
       setHost(session.host);
       setPort(String(session.port));
       setProfileId(session.profile_id);
+      setFolderId(session.folder_id ? String(session.folder_id) : "");
+      setJumpHost(session.jump_host || "");
       setNotes(session.notes || "");
       setTags(JSON.parse(session.tags || "[]"));
     } else {
       setName("");
       setHost("");
       setPort("22");
-      // Auto-select default profile, or first one
       const defaultProfile = profiles.find(p => p.is_default) || profiles[0];
       setProfileId(defaultProfile?.id ?? null);
+      setFolderId("");
+      setJumpHost("");
       setNotes("");
       setTags([]);
     }
     setError("");
+    setNewFolderInput(false);
+    setNewFolderName("");
   }, [session, open, profiles]);
 
   function addTag(e: React.KeyboardEvent) {
@@ -60,6 +73,22 @@ export default function SessionDialog({ open, onClose, onSave, session, profiles
       const t = tagInput.trim().replace(/,$/, "");
       if (t && !tags.includes(t)) setTags([...tags, t]);
       setTagInput("");
+    }
+  }
+
+  async function createFolder() {
+    if (!newFolderName.trim()) return;
+    const res = await fetch("/api/folders", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: newFolderName.trim() }),
+    });
+    if (res.ok) {
+      const f: Folder = await res.json();
+      onFoldersChanged();
+      setFolderId(String(f.id));
+      setNewFolderInput(false);
+      setNewFolderName("");
     }
   }
 
@@ -75,6 +104,8 @@ export default function SessionDialog({ open, onClose, onSave, session, profiles
       host: host.trim(),
       port: parseInt(port) || 22,
       profile_id: profileId,
+      folder_id: folderId ? parseInt(folderId) : null,
+      jump_host: jumpHost.trim() || null,
       notes,
       tags,
     };
@@ -95,7 +126,7 @@ export default function SessionDialog({ open, onClose, onSave, session, profiles
         <DialogContent className="sm:max-w-xl max-h-[90vh] overflow-y-auto" style={{ background: "var(--card)", borderColor: "var(--border)" }}>
           <DialogHeader>
             <DialogTitle>{session ? "Edit session" : "New SSH session"}</DialogTitle>
-            <DialogDescription style={{ color: "var(--muted-foreground)" }}>
+            <DialogDescription style={{ color: "var(--muted-fg)" }}>
               {session ? "Update connection details." : "Where are you connecting, and which credentials should be used?"}
             </DialogDescription>
           </DialogHeader>
@@ -108,7 +139,7 @@ export default function SessionDialog({ open, onClose, onSave, session, profiles
             {/* Connection */}
             <div className="space-y-3">
               <div className="space-y-1.5">
-                <Label className="text-xs uppercase tracking-wide" style={{ color: "var(--muted-foreground)" }}>Host / IP address</Label>
+                <Label className="text-[12.5px] font-semibold" style={{ color: "var(--muted-fg)" }}>Host / IP address</Label>
                 <Input
                   placeholder="192.168.1.1 or server.example.com"
                   value={host}
@@ -120,11 +151,11 @@ export default function SessionDialog({ open, onClose, onSave, session, profiles
 
               <div className="grid grid-cols-3 gap-3">
                 <div className="col-span-2 space-y-1.5">
-                  <Label className="text-xs uppercase tracking-wide" style={{ color: "var(--muted-foreground)" }}>Display name</Label>
+                  <Label className="text-[12.5px] font-semibold" style={{ color: "var(--muted-fg)" }}>Display name</Label>
                   <Input placeholder="My Server" value={name} onChange={e => setName(e.target.value)} />
                 </div>
                 <div className="space-y-1.5">
-                  <Label className="text-xs uppercase tracking-wide" style={{ color: "var(--muted-foreground)" }}>Port</Label>
+                  <Label className="text-[12.5px] font-semibold" style={{ color: "var(--muted-fg)" }}>Port</Label>
                   <Input type="number" placeholder="22" value={port} onChange={e => setPort(e.target.value)} />
                 </div>
               </div>
@@ -133,11 +164,11 @@ export default function SessionDialog({ open, onClose, onSave, session, profiles
             {/* Credential picker */}
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <Label className="text-xs uppercase tracking-wide" style={{ color: "var(--muted-foreground)" }}>
+                <Label className="text-[12.5px] font-semibold" style={{ color: "var(--muted-fg)" }}>
                   Credential profile
                 </Label>
                 {profiles.length > 0 && (
-                  <span className="text-xs" style={{ color: "var(--muted-foreground)" }}>
+                  <span className="text-xs" style={{ color: "var(--subtle-fg)" }}>
                     {profiles.length} {profiles.length === 1 ? "profile" : "profiles"}
                   </span>
                 )}
@@ -151,10 +182,61 @@ export default function SessionDialog({ open, onClose, onSave, session, profiles
               />
             </div>
 
+            {/* Folder + Jump host */}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label className="text-[12.5px] font-semibold flex items-center gap-1.5" style={{ color: "var(--muted-fg)" }}>
+                  <FolderClosed className="h-3.5 w-3.5" />
+                  Folder
+                </Label>
+                {newFolderInput ? (
+                  <div className="flex gap-1">
+                    <Input
+                      placeholder="Folder name"
+                      value={newFolderName}
+                      onChange={e => setNewFolderName(e.target.value)}
+                      onKeyDown={e => { if (e.key === "Enter") createFolder(); if (e.key === "Escape") setNewFolderInput(false); }}
+                      autoFocus
+                    />
+                    <Button size="sm" onClick={createFolder} style={{ background: "var(--accent)", color: "var(--accent-foreground)" }}>Add</Button>
+                  </div>
+                ) : (
+                  <Select value={folderId} onValueChange={(v) => { if (v === "__new__") setNewFolderInput(true); else setFolderId(v ?? ""); }}>
+                    <SelectTrigger className="w-full"><SelectValue placeholder="No folder" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="">— No folder —</SelectItem>
+                      {folders.map(f => (
+                        <SelectItem key={f.id} value={String(f.id)}>
+                          <span className="flex items-center gap-2">
+                            <span className="h-2 w-2 rounded-full" style={{ background: COLOR_HEX[f.color as ProfileColor] || COLOR_HEX.cyan }} />
+                            {f.name}
+                          </span>
+                        </SelectItem>
+                      ))}
+                      <SelectItem value="__new__">+ New folder…</SelectItem>
+                    </SelectContent>
+                  </Select>
+                )}
+              </div>
+
+              <div className="space-y-1.5">
+                <Label className="text-[12.5px] font-semibold flex items-center gap-1.5" style={{ color: "var(--muted-fg)" }}>
+                  <Network className="h-3.5 w-3.5" />
+                  Jump host (ProxyJump)
+                </Label>
+                <Input
+                  placeholder="user@bastion.example.com"
+                  value={jumpHost}
+                  onChange={e => setJumpHost(e.target.value)}
+                  className="font-mono text-sm"
+                />
+              </div>
+            </div>
+
             {/* Tags */}
             <div className="space-y-1.5">
-              <Label className="text-xs uppercase tracking-wide" style={{ color: "var(--muted-foreground)" }}>
-                Tags <span className="normal-case">(Enter or comma to add)</span>
+              <Label className="text-[12.5px] font-semibold" style={{ color: "var(--muted-fg)" }}>
+                Tags <span className="font-normal" style={{ color: "var(--subtle-fg)" }}>(Enter or comma to add)</span>
               </Label>
               <div className="flex flex-wrap gap-1.5 p-2.5 border rounded-lg min-h-10 transition-shadow" style={{ borderColor: "var(--border)", background: "var(--input)" }}>
                 {tags.map(tag => (
@@ -177,8 +259,8 @@ export default function SessionDialog({ open, onClose, onSave, session, profiles
 
             {/* Notes */}
             <div className="space-y-1.5">
-              <Label className="text-xs uppercase tracking-wide" style={{ color: "var(--muted-foreground)" }}>
-                Notes <span className="normal-case">(optional)</span>
+              <Label className="text-[12.5px] font-semibold" style={{ color: "var(--muted-fg)" }}>
+                Notes <span className="font-normal" style={{ color: "var(--subtle-fg)" }}>(optional)</span>
               </Label>
               <Textarea
                 placeholder="Purpose, location, anything useful…"
@@ -203,7 +285,6 @@ export default function SessionDialog({ open, onClose, onSave, session, profiles
         </DialogContent>
       </Dialog>
 
-      {/* Inline profile creation */}
       <ProfileDialog
         open={profileDialogOpen}
         onClose={() => setProfileDialogOpen(false)}

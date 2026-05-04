@@ -43,9 +43,10 @@ const preHydrationScript = `
     r.style.setProperty('--fg', t.fg);
     r.style.setProperty('--card', t.card);
     r.style.setProperty('--card-elevated', t.cardElevated);
-    r.style.setProperty('--muted', t.muted);
     r.style.setProperty('--muted-fg', t.mutedFg);
+    r.style.setProperty('--subtle-fg', t.subtleFg);
     r.style.setProperty('--border', t.border);
+    r.style.setProperty('--muted', t.muted);
     r.style.setProperty('--background', t.bg);
     r.style.setProperty('--foreground', t.fg);
     r.style.setProperty('--card-foreground', t.fg);

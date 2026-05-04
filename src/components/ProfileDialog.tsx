@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Key, Lock, ShieldCheck, Star, Check } from "lucide-react";
+import { Key, Lock, ShieldCheck, Star, Check, AlertCircle, ChevronDown, ChevronRight } from "lucide-react";
 import { COLOR_HEX, PROFILE_COLORS, type ProfileColor } from "@/lib/profile-colors";
 import type { Profile } from "@/lib/types";
 
@@ -26,6 +26,12 @@ export default function ProfileDialog({ open, onClose, onSave, profile }: Props)
   const [port, setPort] = useState("22");
   const [color, setColor] = useState<ProfileColor>("cyan");
   const [isDefault, setIsDefault] = useState(false);
+  const [agentForwarding, setAgentForwarding] = useState(false);
+  const [compression, setCompression] = useState(false);
+  const [serverAliveInterval, setServerAliveInterval] = useState("0");
+  const [extraArgs, setExtraArgs] = useState("");
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [keyValid, setKeyValid] = useState<boolean | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
@@ -39,6 +45,10 @@ export default function ProfileDialog({ open, onClose, onSave, profile }: Props)
       setPort(String(profile.port));
       setColor((profile.color as ProfileColor) || "cyan");
       setIsDefault(!!profile.is_default);
+      setAgentForwarding(!!profile.agent_forwarding);
+      setCompression(!!profile.compression);
+      setServerAliveInterval(String(profile.server_alive_interval || 0));
+      setExtraArgs(profile.extra_args || "");
     } else {
       setName("");
       setUsername("");
@@ -48,9 +58,36 @@ export default function ProfileDialog({ open, onClose, onSave, profile }: Props)
       setPort("22");
       setColor("cyan");
       setIsDefault(false);
+      setAgentForwarding(false);
+      setCompression(false);
+      setServerAliveInterval("0");
+      setExtraArgs("");
     }
+    setAdvancedOpen(false);
     setError("");
   }, [profile, open]);
+
+  // Validate key file when path changes (debounced)
+  useEffect(() => {
+    if (authType === "password" || !keyPath.trim()) {
+      setKeyValid(null);
+      return;
+    }
+    const t = setTimeout(async () => {
+      try {
+        const res = await fetch("/api/validate-key", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ path: keyPath }),
+        });
+        const data = await res.json();
+        setKeyValid(data.exists);
+      } catch {
+        setKeyValid(null);
+      }
+    }, 400);
+    return () => clearTimeout(t);
+  }, [keyPath, authType]);
 
   async function handleSave() {
     setError("");
@@ -68,6 +105,10 @@ export default function ProfileDialog({ open, onClose, onSave, profile }: Props)
       port: parseInt(port) || 22,
       color,
       is_default: isDefault ? 1 : 0,
+      agent_forwarding: agentForwarding ? 1 : 0,
+      compression: compression ? 1 : 0,
+      server_alive_interval: parseInt(serverAliveInterval) || 0,
+      extra_args: extraArgs.trim() || null,
     };
     const res = await fetch(profile ? `/api/profiles/${profile.id}` : "/api/profiles", {
       method: profile ? "PUT" : "POST",
@@ -90,7 +131,7 @@ export default function ProfileDialog({ open, onClose, onSave, profile }: Props)
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="sm:max-w-md" style={{ background: "var(--card)", borderColor: "var(--border)" }}>
+      <DialogContent className="sm:max-w-md max-h-[90vh] overflow-y-auto" style={{ background: "var(--card)", borderColor: "var(--border)" }}>
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <span className="h-2 w-2 rounded-full" style={{ background: colorHex }} />
@@ -104,57 +145,62 @@ export default function ProfileDialog({ open, onClose, onSave, profile }: Props)
           )}
 
           <div className="space-y-1.5">
-            <Label className="text-xs uppercase tracking-wide" style={{ color: "var(--muted-foreground)" }}>Profile name</Label>
-            <Input placeholder="e.g. Personal SSH Key, Work Server" value={name} onChange={e => setName(e.target.value)} autoFocus />
+            <Label className="text-[12.5px] font-semibold" style={{ color: "var(--muted-fg)" }}>Profile name</Label>
+            <Input placeholder="e.g. Personal SSH Key" value={name} onChange={e => setName(e.target.value)} autoFocus />
           </div>
 
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
-              <Label className="text-xs uppercase tracking-wide" style={{ color: "var(--muted-foreground)" }}>Username</Label>
+              <Label className="text-[12.5px] font-semibold" style={{ color: "var(--muted-fg)" }}>Username</Label>
               <Input placeholder="root" value={username} onChange={e => setUsername(e.target.value)} className="font-mono" />
             </div>
             <div className="space-y-1.5">
-              <Label className="text-xs uppercase tracking-wide" style={{ color: "var(--muted-foreground)" }}>Default port</Label>
+              <Label className="text-[12.5px] font-semibold" style={{ color: "var(--muted-fg)" }}>Default port</Label>
               <Input type="number" placeholder="22" value={port} onChange={e => setPort(e.target.value)} />
             </div>
           </div>
 
           <div className="space-y-1.5">
-            <Label className="text-xs uppercase tracking-wide" style={{ color: "var(--muted-foreground)" }}>Authentication</Label>
+            <Label className="text-[12.5px] font-semibold" style={{ color: "var(--muted-fg)" }}>Authentication</Label>
             <Select value={authType} onValueChange={(v) => setAuthType(v as typeof authType)}>
-              <SelectTrigger className="w-full">
-                <SelectValue />
-              </SelectTrigger>
+              <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
               <SelectContent>
-                <SelectItem value="key">
-                  <span className="flex items-center gap-2"><Key className="h-3.5 w-3.5" style={{ color: colorHex }} />SSH Key</span>
-                </SelectItem>
-                <SelectItem value="key_with_passphrase">
-                  <span className="flex items-center gap-2"><ShieldCheck className="h-3.5 w-3.5" style={{ color: colorHex }} />SSH Key + Passphrase</span>
-                </SelectItem>
-                <SelectItem value="password">
-                  <span className="flex items-center gap-2"><Lock className="h-3.5 w-3.5" style={{ color: "#fbbf24" }} />Password</span>
-                </SelectItem>
+                <SelectItem value="key"><span className="flex items-center gap-2"><Key className="h-3.5 w-3.5" style={{ color: colorHex }} />SSH Key</span></SelectItem>
+                <SelectItem value="key_with_passphrase"><span className="flex items-center gap-2"><ShieldCheck className="h-3.5 w-3.5" style={{ color: colorHex }} />SSH Key + Passphrase</span></SelectItem>
+                <SelectItem value="password"><span className="flex items-center gap-2"><Lock className="h-3.5 w-3.5" style={{ color: "#fbbf24" }} />Password</span></SelectItem>
               </SelectContent>
             </Select>
           </div>
 
           {isKey && (
             <div className="space-y-1.5">
-              <Label className="text-xs uppercase tracking-wide" style={{ color: "var(--muted-foreground)" }}>Key path</Label>
+              <Label className="text-[12.5px] font-semibold" style={{ color: "var(--muted-fg)" }}>Key path</Label>
               <Input placeholder="~/.ssh/id_rsa" value={keyPath} onChange={e => setKeyPath(e.target.value)} className="font-mono text-sm" />
+              {keyValid === false && (
+                <p className="text-[12px] flex items-center gap-1" style={{ color: "#fbbf24" }}>
+                  <AlertCircle className="h-3 w-3" /> Key file not found at this path
+                </p>
+              )}
+              {keyValid === true && (
+                <p className="text-[12px] flex items-center gap-1" style={{ color: colorHex }}>
+                  <Check className="h-3 w-3" /> Key file found
+                </p>
+              )}
             </div>
           )}
 
           {authType === "password" && (
             <div className="space-y-1.5">
-              <Label className="text-xs uppercase tracking-wide" style={{ color: "var(--muted-foreground)" }}>Password</Label>
-              <Input type="password" placeholder="Stored locally on this machine" value={password} onChange={e => setPassword(e.target.value)} />
+              <Label className="text-[12.5px] font-semibold" style={{ color: "var(--muted-fg)" }}>Password</Label>
+              <Input type="password" placeholder="Stored encrypted in OS keychain" value={password} onChange={e => setPassword(e.target.value)} />
+              <p className="text-[11px] flex items-center gap-1" style={{ color: "var(--subtle-fg)" }}>
+                <ShieldCheck className="h-3 w-3" /> Encrypted in macOS Keychain
+              </p>
             </div>
           )}
 
           <div className="space-y-1.5">
-            <Label className="text-xs uppercase tracking-wide" style={{ color: "var(--muted-foreground)" }}>Color</Label>
+            <Label className="text-[12.5px] font-semibold" style={{ color: "var(--muted-fg)" }}>Color</Label>
             <div className="flex gap-1.5">
               {PROFILE_COLORS.map(c => (
                 <button
@@ -167,7 +213,7 @@ export default function ProfileDialog({ open, onClose, onSave, profile }: Props)
                 >
                   <div className="h-3 w-3 rounded-full" style={{ background: COLOR_HEX[c] }} />
                   {color === c && (
-                    <div className="absolute inset-0 rounded-lg ring-2 ring-offset-2 ring-offset-card" style={{ '--tw-ring-color': COLOR_HEX[c] } as React.CSSProperties} />
+                    <div className="absolute inset-0 rounded-lg ring-2 ring-offset-2" style={{ '--tw-ring-color': COLOR_HEX[c], '--tw-ring-offset-color': 'var(--card)' } as React.CSSProperties} />
                   )}
                 </button>
               ))}
@@ -184,13 +230,51 @@ export default function ProfileDialog({ open, onClose, onSave, profile }: Props)
               {isDefault && <Check className="h-3.5 w-3.5" style={{ color: "var(--accent-foreground)" }} strokeWidth={3} />}
             </div>
             <div className="flex-1 text-left">
-              <p className="text-sm font-medium flex items-center gap-1.5" style={{ color: "var(--foreground)" }}>
-                <Star className="h-3.5 w-3.5" style={{ color: isDefault ? colorHex : "var(--muted-foreground)" }} fill={isDefault ? colorHex : "none"} />
+              <p className="text-[14px] font-semibold flex items-center gap-1.5" style={{ color: "var(--foreground)" }}>
+                <Star className="h-3.5 w-3.5" style={{ color: isDefault ? colorHex : "var(--subtle-fg)" }} fill={isDefault ? colorHex : "none"} />
                 Set as default profile
               </p>
-              <p className="text-xs" style={{ color: "var(--muted-foreground)" }}>Auto-selected when creating new sessions</p>
+              <p className="text-[12px] mt-0.5" style={{ color: "var(--muted-fg)" }}>Auto-selected for new sessions</p>
             </div>
           </button>
+
+          {/* Advanced SSH options */}
+          <button
+            type="button"
+            onClick={() => setAdvancedOpen(!advancedOpen)}
+            className="flex items-center gap-1 text-[12.5px] font-semibold w-full"
+            style={{ color: "var(--muted-fg)" }}
+          >
+            {advancedOpen ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+            Advanced SSH options
+          </button>
+
+          {advancedOpen && (
+            <div className="space-y-3 pl-4 border-l-2" style={{ borderColor: "var(--border)" }}>
+              <Toggle
+                label="Agent forwarding (-A)"
+                description="Forward your SSH agent to the remote host"
+                checked={agentForwarding}
+                onChange={setAgentForwarding}
+                colorHex={colorHex}
+              />
+              <Toggle
+                label="Compression (-C)"
+                description="Useful on slow connections"
+                checked={compression}
+                onChange={setCompression}
+                colorHex={colorHex}
+              />
+              <div className="space-y-1.5">
+                <Label className="text-[12.5px] font-semibold" style={{ color: "var(--muted-fg)" }}>Keepalive interval (seconds)</Label>
+                <Input type="number" min={0} placeholder="0 = off" value={serverAliveInterval} onChange={e => setServerAliveInterval(e.target.value)} />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-[12.5px] font-semibold" style={{ color: "var(--muted-fg)" }}>Extra arguments</Label>
+                <Input placeholder="-o StrictHostKeyChecking=no" value={extraArgs} onChange={e => setExtraArgs(e.target.value)} className="font-mono text-sm" />
+              </div>
+            </div>
+          )}
         </div>
 
         <DialogFooter className="gap-2">
@@ -205,5 +289,29 @@ export default function ProfileDialog({ open, onClose, onSave, profile }: Props)
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function Toggle({ label, description, checked, onChange, colorHex }: {
+  label: string;
+  description: string;
+  checked: boolean;
+  onChange: (v: boolean) => void;
+  colorHex: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={() => onChange(!checked)}
+      className="flex items-center gap-3 w-full rounded-lg px-2 py-1.5 transition-colors text-left"
+    >
+      <div className="flex h-4 w-4 items-center justify-center rounded shrink-0 transition-colors" style={{ background: checked ? colorHex : "transparent", border: `1.5px solid ${checked ? colorHex : "var(--border)"}` }}>
+        {checked && <Check className="h-3 w-3" style={{ color: "var(--accent-foreground)" }} strokeWidth={3} />}
+      </div>
+      <div className="flex-1">
+        <p className="text-[13px] font-medium" style={{ color: "var(--foreground)" }}>{label}</p>
+        <p className="text-[11.5px]" style={{ color: "var(--subtle-fg)" }}>{description}</p>
+      </div>
+    </button>
   );
 }
