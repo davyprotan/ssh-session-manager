@@ -1,65 +1,288 @@
-import Image from "next/image";
+"use client";
+
+import { useState, useEffect, useCallback } from "react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import { Plus, Search, Server, KeyRound, Terminal, Wifi } from "lucide-react";
+import SessionCard from "@/components/SessionCard";
+import ProfileCard from "@/components/ProfileCard";
+import SessionDialog from "@/components/SessionDialog";
+import ProfileDialog from "@/components/ProfileDialog";
+import { toast } from "sonner";
+import type { Session, Profile } from "@/lib/db";
+import { cn } from "@/lib/utils";
+
+type Tab = "sessions" | "profiles";
 
 export default function Home() {
+  const [tab, setTab] = useState<Tab>("sessions");
+  const [sessions, setSessions] = useState<Session[]>([]);
+  const [profiles, setProfiles] = useState<Profile[]>([]);
+  const [search, setSearch] = useState("");
+
+  const [sessionDialogOpen, setSessionDialogOpen] = useState(false);
+  const [editingSession, setEditingSession] = useState<Session | null>(null);
+  const [profileDialogOpen, setProfileDialogOpen] = useState(false);
+  const [editingProfile, setEditingProfile] = useState<Profile | null>(null);
+
+  const [deleteTarget, setDeleteTarget] = useState<{ type: "session" | "profile"; id: number; name: string } | null>(null);
+
+  const fetchSessions = useCallback(async () => {
+    const res = await fetch("/api/sessions");
+    setSessions(await res.json());
+  }, []);
+
+  const fetchProfiles = useCallback(async () => {
+    const res = await fetch("/api/profiles");
+    setProfiles(await res.json());
+  }, []);
+
+  useEffect(() => { fetchSessions(); fetchProfiles(); }, [fetchSessions, fetchProfiles]);
+
+  async function handleConnect(session: Session) {
+    const toastId = toast.loading(`Connecting to ${session.name}…`);
+    const res = await fetch("/api/connect", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ session_id: session.id }),
+    });
+    const data = await res.json();
+    toast.dismiss(toastId);
+    if (res.ok) {
+      toast.success(`Opened terminal for ${session.name}`, { description: data.command, duration: 4000 });
+      fetchSessions();
+    } else {
+      toast.error("Failed to open terminal");
+    }
+  }
+
+  async function handleDelete() {
+    if (!deleteTarget) return;
+    const { type, id, name } = deleteTarget;
+    await fetch(`/api/${type === "session" ? "sessions" : "profiles"}/${id}`, { method: "DELETE" });
+    toast.success(`"${name}" deleted`);
+    setDeleteTarget(null);
+    if (type === "session") fetchSessions();
+    else { fetchProfiles(); fetchSessions(); }
+  }
+
+  const filteredSessions = sessions.filter(s => {
+    const q = search.toLowerCase();
+    const tags: string[] = JSON.parse(s.tags || "[]");
+    return (
+      s.name.toLowerCase().includes(q) ||
+      s.host.toLowerCase().includes(q) ||
+      (s.profile_name || "").toLowerCase().includes(q) ||
+      tags.some(t => t.toLowerCase().includes(q))
+    );
+  });
+
+  const filteredProfiles = profiles.filter(p =>
+    p.name.toLowerCase().includes(search.toLowerCase()) ||
+    p.username.toLowerCase().includes(search.toLowerCase())
+  );
+
+  const sessionCountByProfile = sessions.reduce<Record<number, number>>((acc, s) => {
+    if (s.profile_id) acc[s.profile_id] = (acc[s.profile_id] || 0) + 1;
+    return acc;
+  }, {});
+
+  function openNewSession() { setEditingSession(null); setSessionDialogOpen(true); }
+  function openNewProfile() { setEditingProfile(null); setProfileDialogOpen(true); }
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
+    <div className="flex flex-col min-h-screen" style={{ background: "var(--background)" }}>
+      {/* Header */}
+      <header className="sticky top-0 z-20 border-b" style={{ borderColor: "var(--border)", background: "rgba(13,17,23,0.85)", backdropFilter: "blur(12px)" }}>
+        <div className="max-w-5xl mx-auto px-5 h-14 flex items-center gap-3">
+          {/* Logo */}
+          <div className="flex items-center gap-2.5 shrink-0 mr-2">
+            <div className="relative flex h-8 w-8 items-center justify-center rounded-xl" style={{ background: "linear-gradient(135deg, rgba(34,211,238,0.25), rgba(34,211,238,0.08))", border: "1px solid rgba(34,211,238,0.3)" }}>
+              <Terminal className="h-4 w-4" style={{ color: "#22d3ee" }} />
+            </div>
+            <span className="font-semibold text-sm" style={{ color: "var(--foreground)" }}>SSH Manager</span>
+          </div>
+
+          {/* Tabs */}
+          <nav className="flex gap-1">
+            <TabButton active={tab === "sessions"} onClick={() => setTab("sessions")} icon={<Server className="h-3.5 w-3.5" />} count={sessions.length}>
+              Sessions
+            </TabButton>
+            <TabButton active={tab === "profiles"} onClick={() => setTab("profiles")} icon={<KeyRound className="h-3.5 w-3.5" />} count={profiles.length}>
+              Profiles
+            </TabButton>
+          </nav>
+
+          <div className="flex-1" />
+
+          {/* Search */}
+          <div className="relative w-52">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 pointer-events-none" style={{ color: "var(--muted-foreground)" }} />
+            <Input
+              className="pl-8 h-8 text-sm"
+              style={{ background: "var(--muted)", borderColor: "var(--border)", color: "var(--foreground)" }}
+              placeholder="Search…"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
             />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+          </div>
+
+          {/* CTA */}
+          <Button
+            size="sm"
+            className="h-8 gap-1.5 text-sm font-medium"
+            style={{ background: "#22d3ee", color: "#0d1117", border: "none" }}
+            onClick={tab === "sessions" ? openNewSession : openNewProfile}
           >
-            Documentation
-          </a>
+            <Plus className="h-3.5 w-3.5" />
+            {tab === "sessions" ? "New session" : "New profile"}
+          </Button>
         </div>
+      </header>
+
+      {/* Content */}
+      <main className="flex-1 max-w-5xl mx-auto w-full px-5 py-7">
+        {tab === "sessions" && (
+          <>
+            {sessions.length === 0 ? (
+              <EmptyState
+                icon={<Wifi className="h-12 w-12" />}
+                title="No sessions yet"
+                description="Add your first server to get started. Set up a credential profile first, then create sessions."
+                action={
+                  <div className="flex gap-2">
+                    <Button variant="outline" size="sm" onClick={openNewProfile} className="gap-1.5" style={{ borderColor: "var(--border)", color: "var(--muted-foreground)" }}>
+                      <KeyRound className="h-3.5 w-3.5" />New profile
+                    </Button>
+                    <Button size="sm" onClick={openNewSession} className="gap-1.5" style={{ background: "#22d3ee", color: "#0d1117", border: "none" }}>
+                      <Plus className="h-3.5 w-3.5" />New session
+                    </Button>
+                  </div>
+                }
+              />
+            ) : filteredSessions.length === 0 ? (
+              <EmptyState icon={<Search className="h-12 w-12" />} title="No results" description={`Nothing matches "${search}"`} />
+            ) : (
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {filteredSessions.map(s => (
+                  <SessionCard
+                    key={s.id}
+                    session={s}
+                    onConnect={handleConnect}
+                    onEdit={s => { setEditingSession(s); setSessionDialogOpen(true); }}
+                    onDelete={s => setDeleteTarget({ type: "session", id: s.id, name: s.name })}
+                  />
+                ))}
+              </div>
+            )}
+          </>
+        )}
+
+        {tab === "profiles" && (
+          <>
+            {profiles.length === 0 ? (
+              <EmptyState
+                icon={<KeyRound className="h-12 w-12" />}
+                title="No credential profiles"
+                description="Profiles store your username and SSH key or password. Create one and reuse it across sessions."
+                action={
+                  <Button size="sm" onClick={openNewProfile} className="gap-1.5" style={{ background: "#22d3ee", color: "#0d1117", border: "none" }}>
+                    <Plus className="h-3.5 w-3.5" />New profile
+                  </Button>
+                }
+              />
+            ) : filteredProfiles.length === 0 ? (
+              <EmptyState icon={<Search className="h-12 w-12" />} title="No results" description={`Nothing matches "${search}"`} />
+            ) : (
+              <div className="flex flex-col gap-2">
+                {filteredProfiles.map(p => (
+                  <ProfileCard
+                    key={p.id}
+                    profile={p}
+                    sessionCount={sessionCountByProfile[p.id] || 0}
+                    onEdit={p => { setEditingProfile(p); setProfileDialogOpen(true); }}
+                    onDelete={p => setDeleteTarget({ type: "profile", id: p.id, name: p.name })}
+                  />
+                ))}
+              </div>
+            )}
+          </>
+        )}
       </main>
+
+      {/* Dialogs */}
+      <SessionDialog open={sessionDialogOpen} onClose={() => setSessionDialogOpen(false)} onSave={fetchSessions} session={editingSession} profiles={profiles} />
+      <ProfileDialog open={profileDialogOpen} onClose={() => setProfileDialogOpen(false)} onSave={() => { fetchProfiles(); fetchSessions(); }} profile={editingProfile} />
+
+      <AlertDialog open={!!deleteTarget} onOpenChange={open => !open && setDeleteTarget(null)}>
+        <AlertDialogContent style={{ background: "var(--card)", borderColor: "var(--border)" }}>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete {deleteTarget?.type}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              <strong>&quot;{deleteTarget?.name}&quot;</strong> will be permanently removed.
+              {deleteTarget?.type === "profile" && " Sessions using this profile won't be deleted but will lose their credential link."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction style={{ background: "var(--destructive)", color: "#fff" }} onClick={handleDelete}>
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
+  );
+}
+
+function TabButton({ active, onClick, icon, count, children }: {
+  active: boolean;
+  onClick: () => void;
+  icon: React.ReactNode;
+  count: number;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all duration-150"
+      style={active
+        ? { color: "#22d3ee", background: "rgba(34,211,238,0.1)" }
+        : { color: "var(--muted-foreground)", background: "transparent" }
+      }
+    >
+      {icon}
+      {children}
+      {count > 0 && (
+        <span
+          className="text-xs tabular-nums rounded-full px-1.5 min-w-5 text-center leading-5"
+          style={active
+            ? { background: "rgba(34,211,238,0.15)", color: "#22d3ee" }
+            : { background: "var(--muted)", color: "var(--muted-foreground)" }
+          }
+        >
+          {count}
+        </span>
+      )}
+    </button>
+  );
+}
+
+function EmptyState({ icon, title, description, action }: {
+  icon: React.ReactNode;
+  title: string;
+  description: string;
+  action?: React.ReactNode;
+}) {
+  return (
+    <div className="flex flex-col items-center justify-center py-28 gap-5 text-center select-none">
+      <div style={{ color: "rgba(139,148,158,0.25)" }}>{icon}</div>
+      <div className="space-y-1.5">
+        <h2 className="font-semibold text-base" style={{ color: "var(--foreground)" }}>{title}</h2>
+        <p className="text-sm max-w-sm mx-auto leading-relaxed" style={{ color: "var(--muted-foreground)" }}>{description}</p>
+      </div>
+      {action}
     </div>
   );
 }
