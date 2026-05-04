@@ -2,6 +2,7 @@ import Database from 'better-sqlite3';
 import path from 'path';
 import os from 'os';
 import fs from 'fs';
+import type { ProfileColor } from './profile-colors';
 
 const DATA_DIR = path.join(os.homedir(), '.ssh-session-manager');
 const DB_PATH = path.join(DATA_DIR, 'sessions.db');
@@ -31,6 +32,8 @@ function migrate(db: Database.Database) {
       password TEXT,
       key_path TEXT,
       port INTEGER NOT NULL DEFAULT 22,
+      color TEXT NOT NULL DEFAULT 'cyan',
+      is_default INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
@@ -48,35 +51,15 @@ function migrate(db: Database.Database) {
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
   `);
+
+  // Idempotent ALTERs for existing DBs
+  const cols = db.prepare("PRAGMA table_info(profiles)").all() as { name: string }[];
+  const colNames = new Set(cols.map(c => c.name));
+  if (!colNames.has("color")) db.exec("ALTER TABLE profiles ADD COLUMN color TEXT NOT NULL DEFAULT 'cyan'");
+  if (!colNames.has("is_default")) db.exec("ALTER TABLE profiles ADD COLUMN is_default INTEGER NOT NULL DEFAULT 0");
 }
 
-export type AuthType = 'password' | 'key' | 'key_with_passphrase';
+export { PROFILE_COLORS, COLOR_HEX } from './profile-colors';
+export type { ProfileColor } from './profile-colors';
 
-export interface Profile {
-  id: number;
-  name: string;
-  username: string;
-  auth_type: AuthType;
-  password?: string | null;
-  key_path?: string | null;
-  port: number;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface Session {
-  id: number;
-  name: string;
-  host: string;
-  port: number;
-  profile_id: number | null;
-  tags: string;
-  notes: string | null;
-  last_connected_at: string | null;
-  created_at: string;
-  updated_at: string;
-  // joined
-  profile_name?: string | null;
-  profile_username?: string | null;
-  profile_auth_type?: string | null;
-}
+export type { AuthType, Profile, Session } from './types';

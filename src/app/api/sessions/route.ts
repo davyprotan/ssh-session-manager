@@ -4,7 +4,7 @@ import { getDb } from '@/lib/db';
 export async function GET() {
   const db = getDb();
   const sessions = db.prepare(`
-    SELECT s.*, p.name as profile_name, p.username as profile_username, p.auth_type as profile_auth_type
+    SELECT s.*, p.name as profile_name, p.username as profile_username, p.auth_type as profile_auth_type, p.color as profile_color
     FROM sessions s
     LEFT JOIN profiles p ON s.profile_id = p.id
     ORDER BY s.name
@@ -27,7 +27,7 @@ export async function POST(req: NextRequest) {
   `).run(name, host, port, profile_id || null, JSON.stringify(tags), notes || null);
 
   const session = db.prepare(`
-    SELECT s.*, p.name as profile_name, p.username as profile_username, p.auth_type as profile_auth_type
+    SELECT s.*, p.name as profile_name, p.username as profile_username, p.auth_type as profile_auth_type, p.color as profile_color
     FROM sessions s LEFT JOIN profiles p ON s.profile_id = p.id
     WHERE s.id = ?
   `).get(result.lastInsertRowid);

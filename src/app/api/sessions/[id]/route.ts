@@ -13,7 +13,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   `).run(name, host, port, profile_id || null, JSON.stringify(tags), notes || null, id);
 
   const session = db.prepare(`
-    SELECT s.*, p.name as profile_name, p.username as profile_username, p.auth_type as profile_auth_type
+    SELECT s.*, p.name as profile_name, p.username as profile_username, p.auth_type as profile_auth_type, p.color as profile_color
     FROM sessions s LEFT JOIN profiles p ON s.profile_id = p.id
     WHERE s.id = ?
   `).get(id);

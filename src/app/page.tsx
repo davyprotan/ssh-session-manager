@@ -4,13 +4,15 @@ import { useState, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
-import { Plus, Search, Server, KeyRound, Terminal, Wifi } from "lucide-react";
+import { Plus, Search, Server, KeyRound, Terminal, Wifi, Zap } from "lucide-react";
+import ThemePicker from "@/components/ThemePicker";
 import SessionCard from "@/components/SessionCard";
 import ProfileCard from "@/components/ProfileCard";
 import SessionDialog from "@/components/SessionDialog";
 import ProfileDialog from "@/components/ProfileDialog";
+import QuickConnectDialog from "@/components/QuickConnectDialog";
 import { toast } from "sonner";
-import type { Session, Profile } from "@/lib/db";
+import type { Session, Profile } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 type Tab = "sessions" | "profiles";
@@ -25,6 +27,7 @@ export default function Home() {
   const [editingSession, setEditingSession] = useState<Session | null>(null);
   const [profileDialogOpen, setProfileDialogOpen] = useState(false);
   const [editingProfile, setEditingProfile] = useState<Profile | null>(null);
+  const [quickConnectOpen, setQuickConnectOpen] = useState(false);
 
   const [deleteTarget, setDeleteTarget] = useState<{ type: "session" | "profile"; id: number; name: string } | null>(null);
 
@@ -94,12 +97,12 @@ export default function Home() {
   return (
     <div className="flex flex-col min-h-screen" style={{ background: "var(--background)" }}>
       {/* Header */}
-      <header className="sticky top-0 z-20 border-b" style={{ borderColor: "var(--border)", background: "rgba(13,17,23,0.85)", backdropFilter: "blur(12px)" }}>
+      <header className="sticky top-0 z-20 border-b" style={{ borderColor: "var(--border)", background: "color-mix(in srgb, var(--background) 85%, transparent)", backdropFilter: "blur(12px)" }}>
         <div className="max-w-5xl mx-auto px-5 h-14 flex items-center gap-3">
           {/* Logo */}
           <div className="flex items-center gap-2.5 shrink-0 mr-2">
-            <div className="relative flex h-8 w-8 items-center justify-center rounded-xl" style={{ background: "linear-gradient(135deg, rgba(34,211,238,0.25), rgba(34,211,238,0.08))", border: "1px solid rgba(34,211,238,0.3)" }}>
-              <Terminal className="h-4 w-4" style={{ color: "#22d3ee" }} />
+            <div className="relative flex h-8 w-8 items-center justify-center rounded-xl" style={{ background: "linear-gradient(135deg, color-mix(in srgb, var(--accent) 25%, transparent), color-mix(in srgb, var(--accent) 8%, transparent))", border: "1px solid color-mix(in srgb, var(--accent) 30%, transparent)" }}>
+              <Terminal className="h-4 w-4" style={{ color: "var(--accent)" }} />
             </div>
             <span className="font-semibold text-sm" style={{ color: "var(--foreground)" }}>SSH Manager</span>
           </div>
@@ -128,11 +131,27 @@ export default function Home() {
             />
           </div>
 
+          {/* Theme picker */}
+          <ThemePicker />
+
+          {/* Quick Connect */}
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-8 gap-1.5 text-sm font-medium"
+            style={{ borderColor: "color-mix(in srgb, var(--accent) 40%, transparent)", color: "var(--accent)", background: "color-mix(in srgb, var(--accent) 5%, transparent)" }}
+            onClick={() => setQuickConnectOpen(true)}
+            title="Connect to a host without saving it"
+          >
+            <Zap className="h-3.5 w-3.5" />
+            Quick connect
+          </Button>
+
           {/* CTA */}
           <Button
             size="sm"
             className="h-8 gap-1.5 text-sm font-medium"
-            style={{ background: "#22d3ee", color: "#0d1117", border: "none" }}
+            style={{ background: "var(--accent)", color: "var(--accent-foreground)", border: "none" }}
             onClick={tab === "sessions" ? openNewSession : openNewProfile}
           >
             <Plus className="h-3.5 w-3.5" />
@@ -155,7 +174,7 @@ export default function Home() {
                     <Button variant="outline" size="sm" onClick={openNewProfile} className="gap-1.5" style={{ borderColor: "var(--border)", color: "var(--muted-foreground)" }}>
                       <KeyRound className="h-3.5 w-3.5" />New profile
                     </Button>
-                    <Button size="sm" onClick={openNewSession} className="gap-1.5" style={{ background: "#22d3ee", color: "#0d1117", border: "none" }}>
+                    <Button size="sm" onClick={openNewSession} className="gap-1.5" style={{ background: "var(--accent)", color: "var(--accent-foreground)", border: "none" }}>
                       <Plus className="h-3.5 w-3.5" />New session
                     </Button>
                   </div>
@@ -187,7 +206,7 @@ export default function Home() {
                 title="No credential profiles"
                 description="Profiles store your username and SSH key or password. Create one and reuse it across sessions."
                 action={
-                  <Button size="sm" onClick={openNewProfile} className="gap-1.5" style={{ background: "#22d3ee", color: "#0d1117", border: "none" }}>
+                  <Button size="sm" onClick={openNewProfile} className="gap-1.5" style={{ background: "var(--accent)", color: "var(--accent-foreground)", border: "none" }}>
                     <Plus className="h-3.5 w-3.5" />New profile
                   </Button>
                 }
@@ -212,8 +231,26 @@ export default function Home() {
       </main>
 
       {/* Dialogs */}
-      <SessionDialog open={sessionDialogOpen} onClose={() => setSessionDialogOpen(false)} onSave={fetchSessions} session={editingSession} profiles={profiles} />
-      <ProfileDialog open={profileDialogOpen} onClose={() => setProfileDialogOpen(false)} onSave={() => { fetchProfiles(); fetchSessions(); }} profile={editingProfile} />
+      <SessionDialog
+        open={sessionDialogOpen}
+        onClose={() => setSessionDialogOpen(false)}
+        onSave={fetchSessions}
+        session={editingSession}
+        profiles={profiles}
+        onProfilesChanged={() => { fetchProfiles(); fetchSessions(); }}
+      />
+      <ProfileDialog
+        open={profileDialogOpen}
+        onClose={() => setProfileDialogOpen(false)}
+        onSave={() => { fetchProfiles(); fetchSessions(); }}
+        profile={editingProfile}
+      />
+      <QuickConnectDialog
+        open={quickConnectOpen}
+        onClose={() => setQuickConnectOpen(false)}
+        profiles={profiles}
+        onProfilesChanged={() => { fetchProfiles(); fetchSessions(); }}
+      />
 
       <AlertDialog open={!!deleteTarget} onOpenChange={open => !open && setDeleteTarget(null)}>
         <AlertDialogContent style={{ background: "var(--card)", borderColor: "var(--border)" }}>
@@ -248,7 +285,7 @@ function TabButton({ active, onClick, icon, count, children }: {
       onClick={onClick}
       className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all duration-150"
       style={active
-        ? { color: "#22d3ee", background: "rgba(34,211,238,0.1)" }
+        ? { color: "var(--accent)", background: "color-mix(in srgb, var(--accent) 10%, transparent)" }
         : { color: "var(--muted-foreground)", background: "transparent" }
       }
     >
@@ -258,7 +295,7 @@ function TabButton({ active, onClick, icon, count, children }: {
         <span
           className="text-xs tabular-nums rounded-full px-1.5 min-w-5 text-center leading-5"
           style={active
-            ? { background: "rgba(34,211,238,0.15)", color: "#22d3ee" }
+            ? { background: "color-mix(in srgb, var(--accent) 15%, transparent)", color: "var(--accent)" }
             : { background: "var(--muted)", color: "var(--muted-foreground)" }
           }
         >

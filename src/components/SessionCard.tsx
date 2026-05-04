@@ -3,8 +3,9 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { Terminal, Key, Lock, MoreVertical, Pencil, Trash2, Copy, Clock, UserRound } from "lucide-react";
-import type { Session } from "@/lib/db";
+import { Terminal, Key, Lock, MoreVertical, Pencil, Trash2, Copy, Clock, UserRound, ShieldCheck } from "lucide-react";
+import { COLOR_HEX, type ProfileColor } from "@/lib/profile-colors";
+import type { Session } from "@/lib/types";
 import { toast } from "sonner";
 
 interface Props {
@@ -27,6 +28,7 @@ function timeAgo(dateStr: string | null): string {
 
 export default function SessionCard({ session, onEdit, onDelete, onConnect }: Props) {
   const tags: string[] = JSON.parse(session.tags || "[]");
+  const accent = session.profile_color ? COLOR_HEX[session.profile_color as ProfileColor] || COLOR_HEX.cyan : COLOR_HEX.cyan;
 
   function copyCommand() {
     const user = session.profile_username;
@@ -43,11 +45,11 @@ export default function SessionCard({ session, onEdit, onDelete, onConnect }: Pr
         background: "var(--card)",
         border: "1px solid var(--border)",
       }}
-      onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.borderColor = "rgba(34,211,238,0.4)"; (e.currentTarget as HTMLDivElement).style.boxShadow = "0 4px 24px rgba(34,211,238,0.05)"; }}
+      onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.borderColor = `${accent}66`; (e.currentTarget as HTMLDivElement).style.boxShadow = `0 4px 24px ${accent}10`; }}
       onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.borderColor = "var(--border)"; (e.currentTarget as HTMLDivElement).style.boxShadow = "none"; }}
     >
-      {/* Cyan top accent */}
-      <div style={{ height: "2px", background: "linear-gradient(90deg, rgba(34,211,238,0.7) 0%, rgba(34,211,238,0.2) 60%, transparent 100%)" }} />
+      {/* Top accent strip - colored by profile */}
+      <div style={{ height: "2px", background: `linear-gradient(90deg, ${accent}b3 0%, ${accent}33 60%, transparent 100%)` }} />
 
       <div className="flex flex-col gap-3 p-4">
         {/* Header */}
@@ -56,7 +58,7 @@ export default function SessionCard({ session, onEdit, onDelete, onConnect }: Pr
             <h3 className="font-semibold text-sm leading-tight truncate" style={{ color: "var(--foreground)" }}>
               {session.name}
             </h3>
-            <p className="text-xs font-mono mt-0.5 truncate" style={{ color: "#22d3ee" }}>
+            <p className="text-xs font-mono mt-0.5 truncate" style={{ color: accent }}>
               {session.host}
               <span style={{ color: "var(--muted-foreground)", opacity: 0.6 }}>
                 {session.port !== 22 ? `:${session.port}` : ""}
@@ -69,7 +71,7 @@ export default function SessionCard({ session, onEdit, onDelete, onConnect }: Pr
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="min-w-44">
               <DropdownMenuItem onClick={() => onConnect(session)}>
-                <Terminal className="h-3.5 w-3.5 mr-2" style={{ color: "#22d3ee" }} /> Connect
+                <Terminal className="h-3.5 w-3.5 mr-2" style={{ color: accent }} /> Connect
               </DropdownMenuItem>
               <DropdownMenuItem onClick={copyCommand}>
                 <Copy className="h-3.5 w-3.5 mr-2" /> Copy SSH command
@@ -90,7 +92,9 @@ export default function SessionCard({ session, onEdit, onDelete, onConnect }: Pr
           <div className="flex items-center gap-1.5 rounded-md px-2 py-1.5 w-fit max-w-full" style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.06)" }}>
             {session.profile_auth_type === "password"
               ? <Lock className="h-3 w-3 shrink-0" style={{ color: "#fbbf24" }} />
-              : <Key className="h-3 w-3 shrink-0" style={{ color: "#22d3ee" }} />}
+              : session.profile_auth_type === "key_with_passphrase"
+              ? <ShieldCheck className="h-3 w-3 shrink-0" style={{ color: accent }} />
+              : <Key className="h-3 w-3 shrink-0" style={{ color: accent }} />}
             <span className="text-xs truncate" style={{ color: "var(--muted-foreground)" }}>{session.profile_name}</span>
             <span style={{ color: "rgba(139,148,158,0.4)", fontSize: "10px" }}>·</span>
             <UserRound className="h-3 w-3 shrink-0" style={{ color: "rgba(139,148,158,0.5)" }} />
@@ -132,9 +136,9 @@ export default function SessionCard({ session, onEdit, onDelete, onConnect }: Pr
           <button
             onClick={() => onConnect(session)}
             className="flex items-center gap-1.5 text-xs font-medium rounded-lg px-3 py-1.5 transition-all duration-150"
-            style={{ background: "rgba(34,211,238,0.1)", color: "#22d3ee", border: "1px solid rgba(34,211,238,0.2)" }}
-            onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = "rgba(34,211,238,0.18)"; }}
-            onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = "rgba(34,211,238,0.1)"; }}
+            style={{ background: `${accent}1a`, color: accent, border: `1px solid ${accent}33` }}
+            onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = `${accent}2e`; }}
+            onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = `${accent}1a`; }}
           >
             <Terminal className="h-3 w-3" />
             Connect
