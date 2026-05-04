@@ -41,7 +41,7 @@ function startServer() {
     const appRoot = path.join(process.resourcesPath, 'app');
     const nextBin = path.join(appRoot, 'node_modules', 'next', 'dist', 'bin', 'next');
 
-    serverProcess = spawn(process.execPath, [nextBin, 'start', '-p', String(APP_PORT)], {
+    serverProcess = spawn(process.execPath, [nextBin, 'start', '-p', String(APP_PORT), '-H', '127.0.0.1'], {
       cwd: appRoot,
       env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', NODE_ENV: 'production' },
       stdio: ['ignore', 'pipe', 'pipe'],

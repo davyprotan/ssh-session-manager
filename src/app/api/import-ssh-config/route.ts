@@ -4,11 +4,18 @@ import os from 'os';
 import path from 'path';
 import { getDb } from '@/lib/db';
 import { parseSshConfig, type SshConfigEntry } from '@/lib/ssh-config';
+import { assertSafeOrigin } from '@/lib/api-guard';
 
 const PALETTE = ['cyan', 'green', 'amber', 'purple', 'pink', 'rose'] as const;
 
-// GET → returns a preview (parses ~/.ssh/config and returns what would be imported)
-export async function GET() {
+const HOST_RE = /^[a-zA-Z0-9._:%\-]+$/;
+const USER_RE = /^[a-zA-Z0-9._-]{1,64}$/;
+const KEYPATH_RE = /^[a-zA-Z0-9._/~\-+ ]+$/;
+
+export async function GET(req: NextRequest) {
+  const guard = assertSafeOrigin(req);
+  if (guard) return guard;
+
   const cfgPath = path.join(os.homedir(), '.ssh', 'config');
   if (!fs.existsSync(cfgPath)) {
     return NextResponse.json({ available: false, error: 'No ~/.ssh/config found', entries: [] });
@@ -17,22 +24,35 @@ export async function GET() {
   try {
     const content = fs.readFileSync(cfgPath, 'utf8');
     const entries = parseSshConfig(content);
-    // Expand $HOME
-    const expanded = entries.map(e => ({
-      ...e,
-      identityFile: e.identityFile?.replace('$HOME', os.homedir()),
-    }));
-    return NextResponse.json({ available: true, entries: expanded, path: cfgPath });
+    return NextResponse.json({ available: true, entries, path: cfgPath });
   } catch (e: unknown) {
     return NextResponse.json({ available: false, error: e instanceof Error ? e.message : String(e), entries: [] });
   }
 }
 
-// POST → actually import. Body: { entries: SshConfigEntry[] } (the user-confirmed subset)
 export async function POST(req: NextRequest) {
-  const { entries } = (await req.json()) as { entries: SshConfigEntry[] };
-  if (!Array.isArray(entries)) {
+  const guard = assertSafeOrigin(req);
+  if (guard) return guard;
+
+  const body = await req.json().catch(() => null);
+  if (!body || !Array.isArray(body.entries)) {
     return NextResponse.json({ error: 'entries array required' }, { status: 400 });
+  }
+
+  // Validate each entry from the client (it may have been tampered with, even though
+  // the original came from disk)
+  const safeEntries: SshConfigEntry[] = [];
+  for (const e of body.entries as unknown[]) {
+    if (!e || typeof e !== 'object') continue;
+    const r = e as Record<string, unknown>;
+    const host = typeof r.host === 'string' && HOST_RE.test(r.host) ? r.host : null;
+    if (!host) continue;
+    const hostname = typeof r.hostname === 'string' && HOST_RE.test(r.hostname) ? r.hostname : undefined;
+    const user = typeof r.user === 'string' && USER_RE.test(r.user) ? r.user : undefined;
+    const port = Number.isInteger(r.port) && (r.port as number) > 0 && (r.port as number) < 65536 ? (r.port as number) : undefined;
+    const identityFile = typeof r.identityFile === 'string' && KEYPATH_RE.test(r.identityFile) ? r.identityFile : undefined;
+    const proxyJump = typeof r.proxyJump === 'string' && /^(?:[a-zA-Z0-9._-]{1,64}@)?[a-zA-Z0-9._:%\-]+(?::\d{1,5})?$/.test(r.proxyJump) ? r.proxyJump : undefined;
+    safeEntries.push({ host, hostname, user, port, identityFile, proxyJump });
   }
 
   const db = getDb();
@@ -40,12 +60,9 @@ export async function POST(req: NextRequest) {
     id: number; username: string; key_path: string | null; port: number;
   }>;
 
-  // Group entries by (user, identityFile, port) → reuse or create profile
   function findOrCreateProfile(user: string, keyPath: string | null, port: number): number {
     const found = existingProfiles.find(p =>
-      p.username === user &&
-      (p.key_path || null) === keyPath &&
-      p.port === port
+      p.username === user && (p.key_path || null) === keyPath && p.port === port
     );
     if (found) return found.id;
 
@@ -69,12 +86,11 @@ export async function POST(req: NextRequest) {
   let imported = 0;
   let skipped = 0;
   const tx = db.transaction(() => {
-    for (const e of entries) {
+    for (const e of safeEntries) {
       const host = (e.hostname || e.host).trim();
       const user = (e.user || os.userInfo().username).trim();
       const port = e.port || 22;
 
-      // Skip if a session with same name and host already exists
       const exists = db.prepare('SELECT 1 FROM sessions WHERE name = ? AND host = ?').get(e.host, host);
       if (exists) { skipped++; continue; }
 

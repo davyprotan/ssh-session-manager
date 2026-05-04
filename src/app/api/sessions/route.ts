@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
+import { assertSafeOrigin } from '@/lib/api-guard';
+import { parseSession, ValidationError } from '@/lib/validators';
 
 const SELECT_JOINED = `
   SELECT s.*,
@@ -11,17 +13,27 @@ const SELECT_JOINED = `
   LEFT JOIN folders f ON s.folder_id = f.id
 `;
 
-export async function GET() {
+export async function GET(req: NextRequest) {
+  const guard = assertSafeOrigin(req);
+  if (guard) return guard;
+
   const db = getDb();
   const sessions = db.prepare(`${SELECT_JOINED} ORDER BY s.name`).all();
   return NextResponse.json(sessions);
 }
 
 export async function POST(req: NextRequest) {
-  const body = await req.json();
-  const { name, host, port = 22, profile_id, folder_id, jump_host, tags = [], notes } = body;
+  const guard = assertSafeOrigin(req);
+  if (guard) return guard;
 
-  if (!name || !host) {
+  let input: ReturnType<typeof parseSession>;
+  try {
+    input = parseSession(await req.json());
+  } catch (e) {
+    if (e instanceof ValidationError) return NextResponse.json({ error: e.message }, { status: 400 });
+    return NextResponse.json({ error: 'invalid request' }, { status: 400 });
+  }
+  if (!input.name || !input.host) {
     return NextResponse.json({ error: 'name and host are required' }, { status: 400 });
   }
 
@@ -29,7 +41,7 @@ export async function POST(req: NextRequest) {
   const result = db.prepare(`
     INSERT INTO sessions (name, host, port, profile_id, folder_id, jump_host, tags, notes)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(name, host, port, profile_id || null, folder_id || null, jump_host || null, JSON.stringify(tags), notes || null);
+  `).run(input.name, input.host, input.port, input.profile_id, input.folder_id, input.jump_host, JSON.stringify(input.tags), input.notes);
 
   const session = db.prepare(`${SELECT_JOINED} WHERE s.id = ?`).get(result.lastInsertRowid);
   return NextResponse.json(session, { status: 201 });

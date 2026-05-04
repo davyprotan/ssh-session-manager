@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
 import { setPassword as kcSet, isAvailable as kcAvailable } from '@/lib/keychain';
+import { assertSafeOrigin } from '@/lib/api-guard';
 
 interface ImportFolder { id?: number; name: string; color?: string; sort_order?: number }
 interface ImportProfile {
@@ -17,6 +18,9 @@ interface ImportSession {
 }
 
 export async function POST(req: NextRequest) {
+  const guard = assertSafeOrigin(req);
+  if (guard) return guard;
+
   const body = await req.json() as {
     folders?: ImportFolder[];
     profiles?: ImportProfile[];
