@@ -1,6 +1,6 @@
 {
   "name": "ssh-session-manager",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "main": "electron/main.js",
   "scripts": {
@@ -54,17 +54,23 @@
       {
         "from": ".next",
         "to": "app/.next",
-        "filter": ["**/*"]
+        "filter": [
+          "**/*"
+        ]
       },
       {
         "from": "public",
         "to": "app/public",
-        "filter": ["**/*"]
+        "filter": [
+          "**/*"
+        ]
       },
       {
         "from": "node_modules",
         "to": "app/node_modules",
-        "filter": ["**/*"]
+        "filter": [
+          "**/*"
+        ]
       },
       {
         "from": "package.json",
@@ -81,8 +87,20 @@
     "mac": {
       "category": "public.app-category.developer-tools",
       "target": [
-        { "target": "dmg", "arch": ["x64", "arm64"] },
-        { "target": "zip", "arch": ["x64", "arm64"] }
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
       ],
       "icon": "electron/build/icon.icns",
       "hardenedRuntime": false,
