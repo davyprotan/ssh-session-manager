@@ -124,6 +124,7 @@ export default function QuickConnectDialog({ open, onClose, profiles, onProfiles
           onProfilesChanged();
           if (saved?.id) setProfileId(saved.id);
         }}
+        backLabel="Back to quick connect"
       />
     </>
   );

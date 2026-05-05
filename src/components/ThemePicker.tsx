@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Palette, Check } from "lucide-react";
 import { useTheme } from "./ThemeProvider";
@@ -91,6 +91,15 @@ export default function ThemePicker() {
               );
             })}
           </div>
+
+          <DialogFooter>
+            <Button
+              onClick={() => setOpen(false)}
+              style={{ background: "var(--accent)", color: "var(--accent-foreground)", border: "none" }}
+            >
+              Done
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </>

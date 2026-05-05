@@ -15,9 +15,10 @@ interface Props {
   onClose: () => void;
   onSave: (profile?: Profile) => void;
   profile?: Profile | null;
+  backLabel?: string; // when shown from another dialog, e.g. "Back to session"
 }
 
-export default function ProfileDialog({ open, onClose, onSave, profile }: Props) {
+export default function ProfileDialog({ open, onClose, onSave, profile, backLabel }: Props) {
   const [name, setName] = useState("");
   const [username, setUsername] = useState("");
   const [authType, setAuthType] = useState<"password" | "key" | "key_with_passphrase">("key");
@@ -278,7 +279,7 @@ export default function ProfileDialog({ open, onClose, onSave, profile }: Props)
         </div>
 
         <DialogFooter className="gap-2">
-          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button variant="outline" onClick={onClose}>{backLabel || "Cancel"}</Button>
           <Button
             onClick={handleSave}
             disabled={saving}

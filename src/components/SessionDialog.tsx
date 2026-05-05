@@ -292,6 +292,7 @@ export default function SessionDialog({ open, onClose, onSave, session, profiles
           onProfilesChanged();
           if (saved?.id) setProfileId(saved.id);
         }}
+        backLabel="Back to session"
       />
     </>
   );

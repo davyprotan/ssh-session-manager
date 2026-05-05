@@ -168,12 +168,16 @@ export default function Home() {
       {/* Header */}
       <header className="sticky top-0 z-20 border-b" style={{ borderColor: "var(--border)", background: "color-mix(in srgb, var(--background) 85%, transparent)", backdropFilter: "blur(12px)" }}>
         <div className="max-w-5xl mx-auto px-5 h-14 flex items-center gap-3">
-          <div className="flex items-center gap-2.5 shrink-0 mr-2">
+          <button
+            onClick={() => { setTab("sessions"); setSearch(""); }}
+            className="flex items-center gap-2.5 shrink-0 mr-2 rounded-lg px-1 -mx-1 py-1 -my-1 transition-colors hover:bg-accent/40"
+            title="Go to dashboard"
+          >
             <div className="relative flex h-8 w-8 items-center justify-center rounded-xl" style={{ background: "linear-gradient(135deg, color-mix(in srgb, var(--accent) 25%, transparent), color-mix(in srgb, var(--accent) 8%, transparent))", border: "1px solid color-mix(in srgb, var(--accent) 30%, transparent)" }}>
               <Terminal className="h-4 w-4" style={{ color: "var(--accent)" }} />
             </div>
             <span className="font-semibold text-sm" style={{ color: "var(--foreground)" }}>SSH Manager</span>
-          </div>
+          </button>
 
           <nav className="flex gap-1">
             <TabButton active={tab === "sessions"} onClick={() => setTab("sessions")} icon={<Server className="h-3.5 w-3.5" />} count={sessions.length}>
@@ -210,7 +214,7 @@ export default function Home() {
             </Select>
           )}
 
-          <Button size="sm" variant="ghost" className="h-8 w-8 p-0" onClick={() => setSettingsOpen(true)} title="Settings & tools" style={{ color: "var(--muted-fg)" }}>
+          <Button size="sm" variant="ghost" className="h-8 w-8 p-0" onClick={() => setSettingsOpen(true)} title="Settings, import & export" aria-label="Settings, import & export" style={{ color: "var(--muted-fg)" }}>
             <Settings className="h-4 w-4" />
           </Button>
 

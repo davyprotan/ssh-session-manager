@@ -76,7 +76,7 @@ export default function SettingsDialog({ open, onClose, onChanged, onOpenSshImpo
             icon={<FileText className="h-4 w-4" />}
             title="Import from ~/.ssh/config"
             description="Pull in existing hosts you already have configured"
-            onClick={() => { onOpenSshImport(); onClose(); }}
+            onClick={() => { onOpenSshImport(); }}
           />
 
           <SettingItem
