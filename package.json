@@ -16,7 +16,7 @@
   },
   "scripts": {
     "dev": "next dev -p 3005 -H 127.0.0.1",
-    "build": "next build",
+    "build": "next build --webpack",
     "start": "next start -p 3005 -H 127.0.0.1",
     "lint": "eslint",
     "electron": "electron .",
