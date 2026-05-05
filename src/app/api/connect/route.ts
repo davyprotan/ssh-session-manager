@@ -185,5 +185,16 @@ export async function POST(req: NextRequest) {
     console.warn('Failed to write history entry:', e);
   }
 
-  return NextResponse.json({ ok: true, command: result.display });
+  // Surface whether this connection uses password auth so the UI can offer
+  // to set up key-based auth as a follow-up.
+  let isPasswordAuth = false;
+  if (typeof body.session_id === 'number') {
+    const s = db.prepare('SELECT p.auth_type FROM sessions s LEFT JOIN profiles p ON s.profile_id = p.id WHERE s.id = ?').get(body.session_id) as { auth_type?: string } | undefined;
+    isPasswordAuth = s?.auth_type === 'password';
+  } else if (typeof body.profile_id === 'number') {
+    const p = db.prepare('SELECT auth_type FROM profiles WHERE id = ?').get(body.profile_id) as { auth_type?: string } | undefined;
+    isPasswordAuth = p?.auth_type === 'password';
+  }
+
+  return NextResponse.json({ ok: true, command: result.display, password_auth: isPasswordAuth });
 }

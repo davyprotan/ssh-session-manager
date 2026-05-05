@@ -5,9 +5,10 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogD
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Zap, Terminal, Check, BookmarkPlus } from "lucide-react";
+import { Zap, Terminal, Check, BookmarkPlus, KeyRound } from "lucide-react";
 import ProfilePicker from "./ProfilePicker";
 import ProfileDialog from "./ProfileDialog";
+import SetupPasswordlessDialog from "./SetupPasswordlessDialog";
 import { toast } from "sonner";
 import type { Profile } from "@/lib/types";
 
@@ -27,6 +28,7 @@ export default function QuickConnectDialog({ open, onClose, profiles, onProfiles
   const [sessionName, setSessionName] = useState("");
   const [connecting, setConnecting] = useState(false);
   const [profileDialogOpen, setProfileDialogOpen] = useState(false);
+  const [passwordlessOpen, setPasswordlessOpen] = useState(false);
 
   useEffect(() => {
     if (open) {
@@ -101,6 +103,8 @@ export default function QuickConnectDialog({ open, onClose, profiles, onProfiles
   }
 
   const canSubmit = !!host.trim() && !!profileId && !connecting;
+  const selectedProfile = profiles.find(p => p.id === profileId) || null;
+  const isPasswordAuth = selectedProfile?.auth_type === "password";
 
   return (
     <>
@@ -189,7 +193,19 @@ export default function QuickConnectDialog({ open, onClose, profiles, onProfiles
             )}
           </div>
 
-          <DialogFooter className="gap-2">
+          <DialogFooter className="gap-2 flex-wrap">
+            {isPasswordAuth && host.trim() && (
+              <Button
+                variant="outline"
+                onClick={() => setPasswordlessOpen(true)}
+                className="gap-1.5 mr-auto"
+                style={{ borderColor: "color-mix(in srgb, var(--accent) 40%, transparent)", color: "var(--accent)", background: "color-mix(in srgb, var(--accent) 5%, transparent)" }}
+                title="Install your SSH key on this host so you don't need a password again"
+              >
+                <KeyRound className="h-3.5 w-3.5" />
+                Set up passwordless first
+              </Button>
+            )}
             <Button variant="outline" onClick={onClose}>Cancel</Button>
             <Button
               onClick={handleConnect}
@@ -212,6 +228,14 @@ export default function QuickConnectDialog({ open, onClose, profiles, onProfiles
           if (saved?.id) setProfileId(saved.id);
         }}
         backLabel="Back to quick connect"
+      />
+
+      <SetupPasswordlessDialog
+        open={passwordlessOpen}
+        onClose={() => setPasswordlessOpen(false)}
+        target={{ host: host.trim(), port: port ? parseInt(port) : undefined, jumpHost: null }}
+        profile={selectedProfile}
+        onDone={() => { onProfilesChanged(); }}
       />
     </>
   );

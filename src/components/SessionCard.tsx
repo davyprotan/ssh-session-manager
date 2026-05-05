@@ -122,6 +122,19 @@ export default function SessionCard({ session, onEdit, onDelete, onConnect, onCl
           </div>
         )}
 
+        {/* Nudge to ditch passwords */}
+        {session.profile_auth_type === "password" && onSetupPasswordless && (
+          <button
+            onClick={() => onSetupPasswordless(session)}
+            className="flex items-center gap-1 text-[11.5px] w-fit rounded-md px-1.5 py-0.5 -mt-1 transition-colors"
+            style={{ color: "#fbbf24", background: "color-mix(in srgb, #fbbf24 8%, transparent)" }}
+            title="Install your SSH key on this host to stop typing passwords"
+          >
+            <KeyRound className="h-3 w-3" />
+            Make passwordless
+          </button>
+        )}
+
         {/* Jump host */}
         {session.jump_host && (
           <div className="flex items-center gap-1 text-[12px]" style={{ color: "var(--muted-fg)" }}>

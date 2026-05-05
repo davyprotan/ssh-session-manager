@@ -2,6 +2,14 @@
 
 All notable changes to **SSH Manager**.
 
+## [0.7.1] — 2026-05-05
+
+### Passwordless setup is now discoverable everywhere
+- **Visible amber "Make passwordless" hint** on every password-auth session card — no longer buried in the menu
+- **Connect toast** for password-auth sessions includes a "Make passwordless" action button (8s duration so you have time to click)
+- **Quick Connect dialog** now has a "Set up passwordless first" button when you've picked a password-auth profile
+- The same `SetupPasswordlessDialog` works for saved sessions and ad-hoc Quick Connect targets
+
 ## [0.7.0] — 2026-05-05
 
 ### Set up passwordless login (the proper fix)

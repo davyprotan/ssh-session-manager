@@ -91,7 +91,16 @@ export default function Home() {
     const data = await res.json();
     toast.dismiss(toastId);
     if (res.ok) {
-      toast.success(`Opened terminal for ${session.name}`, { description: data.command, duration: 4000 });
+      // Offer one-click upgrade to key auth if this session uses passwords
+      const action = data.password_auth ? {
+        label: "Make passwordless",
+        onClick: () => setPasswordlessTarget(session),
+      } : undefined;
+      toast.success(`Opened terminal for ${session.name}`, {
+        description: data.command,
+        duration: data.password_auth ? 8000 : 4000,
+        action,
+      });
       fetchSessions();
       fetchHistory();
     } else {

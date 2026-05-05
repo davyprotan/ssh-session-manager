@@ -10,14 +10,17 @@ import type { Session, Profile } from "@/lib/types";
 interface Props {
   open: boolean;
   onClose: () => void;
-  session: Session | null;
+  // Either pass a saved session…
+  session?: Session | null;
+  // …or pass a raw connection target (used for Quick Connect)
+  target?: { host: string; port?: number; jumpHost?: string | null } | null;
   profile: Profile | null;
   onDone: () => void;
 }
 
 type Step = "intro" | "running" | "verify";
 
-export default function SetupPasswordlessDialog({ open, onClose, session, profile, onDone }: Props) {
+export default function SetupPasswordlessDialog({ open, onClose, session, target, profile, onDone }: Props) {
   const [step, setStep] = useState<Step>("intro");
   const [generating, setGenerating] = useState(false);
   const [keyPath, setKeyPath] = useState<string>("");
@@ -32,15 +35,17 @@ export default function SetupPasswordlessDialog({ open, onClose, session, profil
     setPubPath("");
   }, [open]);
 
-  if (!session || !profile) return null;
+  // Resolve connection target — either from saved session or from raw target prop
+  if (!profile) return null;
+  if (!session && !target) return null;
 
   const username = profile.username;
-  const host = session.host;
-  const port = session.port;
-  const jumpHost = session.jump_host;
+  const host = session?.host ?? target!.host;
+  const port = session?.port ?? target?.port ?? profile.port ?? 22;
+  const jumpHost = session?.jump_host ?? target?.jumpHost ?? null;
 
   async function setUp() {
-    if (!session || !profile) return;
+    if (!profile) return;
     setGenerating(true);
     setError("");
 
@@ -114,7 +119,7 @@ export default function SetupPasswordlessDialog({ open, onClose, session, profil
   }
 
   async function confirmAndSwitch() {
-    if (!profile || !session) return;
+    if (!profile) return;
     setGenerating(true);
 
     // Update the profile to use key auth, pointing at the new key
