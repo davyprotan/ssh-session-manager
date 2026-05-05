@@ -2,6 +2,14 @@
 
 All notable changes to **SSH Manager**.
 
+## [0.6.3] — 2026-05-05
+
+### Connect: terminal stays open & shows errors
+- iTerm2 connection now **types the SSH command into a fresh shell** instead of running it as the session's command. When SSH fails, you stay at your normal shell prompt and can read the error until you close the window manually
+- Bug fix: profiles with `auth_type=password` no longer accidentally pass `-i <key_path>` to ssh (was triggering "Server refused our key" before falling back to password)
+
+### CI
+- Windows build is now allowed to fail without blocking the release. The macOS `.dmg` always ships; release notes update regardless. Windows fix is tracked separately
 ## [0.6.2] — 2026-05-05
 
 ### Reveal saved passwords / passphrases

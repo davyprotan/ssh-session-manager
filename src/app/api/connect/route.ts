@@ -63,7 +63,8 @@ export async function POST(req: NextRequest) {
       const profile = db.prepare(`SELECT * FROM profiles WHERE id = ?`).get(profileId) as ProfileRow | undefined;
       if (profile) {
         username = profile.username;
-        keyPath = profile.key_path || '';
+        // Only send -i when auth type is key-based; for password auth, ssh shouldn't be told to use a key file
+        keyPath = (profile.auth_type === 'key' || profile.auth_type === 'key_with_passphrase') ? (profile.key_path || '') : '';
         agentForwarding = profile.agent_forwarding || 0;
         compression = profile.compression || 0;
         serverAliveInterval = profile.server_alive_interval || 0;
@@ -80,7 +81,7 @@ export async function POST(req: NextRequest) {
     const requestedPort = Number(body.port) || profile.port || 22;
     port = requestedPort;
     username = profile.username;
-    keyPath = profile.key_path || '';
+    keyPath = (profile.auth_type === 'key' || profile.auth_type === 'key_with_passphrase') ? (profile.key_path || '') : '';
     agentForwarding = profile.agent_forwarding || 0;
     compression = profile.compression || 0;
     serverAliveInterval = profile.server_alive_interval || 0;
@@ -109,25 +110,30 @@ export async function POST(req: NextRequest) {
   // Build the shell command. Each argv element is properly single-quoted.
   // single-quote escape: replace ' with '\''
   const sq = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
-  // Keep the terminal open after ssh exits so the user can read errors
-  // (otherwise iTerm2 closes the window and shows "session ended very soon").
-  // We pause until the user presses Enter, which mirrors the behaviour of clicking through an error.
   const sshCmd = `ssh ${result.argv.map(sq).join(' ')}`;
-  const shellCmd = `clear; ${sshCmd}; echo; echo "── Session ended (exit $?). Press Return to close ──"; read`;
 
-  // AppleScript with proper escaping
-  const escaped = escapeForAppleScriptString(shellCmd);
+  // For iTerm2 we open a fresh window and TYPE the command into the user's normal login
+  // shell. When ssh exits the user is back at their shell prompt and can read the error
+  // until they close the window manually. This avoids iTerm2's "command session ended"
+  // behaviour where the window closes faster than the eye can read.
+  // For Terminal.app, `do script` already keeps the window open after the command exits.
+  const escapedForIterm = escapeForAppleScriptString(sshCmd);
+  const escapedForTerminal = escapeForAppleScriptString(sshCmd);
   const appleScript = `
     tell application "System Events"
       set appList to name of every application process
     end tell
     if appList contains "iTerm2" or appList contains "iTerm" then
       tell application "iTerm"
-        create window with default profile command "${escaped}"
+        set newWindow to (create window with default profile)
+        tell current session of newWindow
+          write text "${escapedForIterm}"
+        end tell
+        activate
       end tell
     else
       tell application "Terminal"
-        do script "${escaped}"
+        do script "${escapedForTerminal}"
         activate
       end tell
     end if
