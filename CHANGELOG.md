@@ -2,6 +2,14 @@
 
 All notable changes to **SSH Manager**.
 
+## [Unreleased]
+
+### Project hygiene
+- Add **PolyForm Noncommercial 1.0.0** license (see `LICENSE`) — free for personal/hobby/research/education use, no commercial use
+- Add `SECURITY.md` with private vulnerability disclosure flow and threat model
+- Add `description`, `license`, `author`, `homepage`, `repository`, `bugs` fields to `package.json`
+- GitHub Actions: release workflow now auto-populates **GitHub Release notes** from the matching `CHANGELOG.md` section
+
 ## [0.3.2] — 2026-05-05
 
 ### UX

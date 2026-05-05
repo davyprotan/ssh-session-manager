@@ -186,4 +186,16 @@ For personal use this is overkill. The current ad-hoc signing is fine.
 
 ## License
 
-MIT. Use, modify, share — your choice.
+[**PolyForm Noncommercial License 1.0.0**](./LICENSE).
+
+In short:
+
+- ✅ **Free for personal use, hobby projects, research, education**, and use by charitable, educational, or government organisations.
+- ✅ Modify it, share your modifications, contribute back.
+- ❌ **Not for commercial use** — you can't sell it, ship it inside a paid product, or use it as part of a for-profit business operation.
+
+If you want a commercial licence, [open a GitHub issue](https://github.com/davyprotan/ssh-session-manager/issues) or contact the maintainer.
+
+## Security
+
+If you find a security issue, please [report it privately](./SECURITY.md) instead of opening a public issue.
