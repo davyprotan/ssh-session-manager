@@ -2,6 +2,21 @@
 
 All notable changes to **SSH Manager**.
 
+## [0.5.0] — 2026-05-05
+
+### Update notifications
+- New **`/api/update-check`** endpoint queries GitHub for the latest release tag and compares to the running version
+- **In-app banner** above the header announces new versions; "Download" opens the release page in your default browser, "X" dismisses for that version
+- Throttled to **once per 24 hours**, cached locally
+- Silently no-ops while the repo is private (404 is treated as "not yet"). Will start working automatically once the repo is public — no app change needed
+- Per-version dismiss persisted in `localStorage`
+
+### Data persistence (defense in depth)
+- Schema version pinning via `PRAGMA user_version` — every migration tracked and logged
+- **Pre-migration snapshot** — before any column or table change, the DB is copied to `~/.ssh-session-manager/backups/pre-migration_v{from}-to-v{to}_*.db`
+- Last 10 snapshots kept; older ones rotated out
+- Migrations are strictly **additive** — we never drop columns or tables, so older app versions stay readable
+
 ## [0.4.0] — 2026-05-05
 
 ### Backups (industry-grade)
