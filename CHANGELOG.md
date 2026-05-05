@@ -2,6 +2,21 @@
 
 All notable changes to **SSH Manager**.
 
+## [0.6.2] — 2026-05-05
+
+### Reveal saved passwords / passphrases
+- New "**eye toggle**" on the Password / Passphrase fields in the profile editor
+- For Keychain-stored secrets, clicking the eye lazily fetches the value via a new `GET /api/profiles/[id]/secret` endpoint (origin-guarded)
+- New behaviour: passphrases for `key_with_passphrase` profiles are now also stored in Keychain (was previously plaintext in the SQLite DB)
+- Profile editor now correctly shows the passphrase field for `key_with_passphrase` profiles (was hidden before)
+
+### Terminal stays open on connection failure
+- Connect command now appends `… ; echo "Session ended (exit $?). Press Return to close" ; read` so when SSH fails (auth denied, host unreachable, etc.) you can actually read the error message before the window closes
+- Fixes the iTerm2 "*A session ended very soon after starting*" warning where the SSH error was hidden
+
+### Windows build fix
+- Add `outputFileTracingExcludes` for Windows junction points (`Application Data`, `Local Settings`) — was failing CI with `EPERM: scandir` on every Windows release build
+
 ## [0.6.1] — 2026-05-05
 
 ### Critical fix

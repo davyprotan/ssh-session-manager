@@ -109,7 +109,11 @@ export async function POST(req: NextRequest) {
   // Build the shell command. Each argv element is properly single-quoted.
   // single-quote escape: replace ' with '\''
   const sq = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
-  const shellCmd = `ssh ${result.argv.map(sq).join(' ')}`;
+  // Keep the terminal open after ssh exits so the user can read errors
+  // (otherwise iTerm2 closes the window and shows "session ended very soon").
+  // We pause until the user presses Enter, which mirrors the behaviour of clicking through an error.
+  const sshCmd = `ssh ${result.argv.map(sq).join(' ')}`;
+  const shellCmd = `clear; ${sshCmd}; echo; echo "── Session ended (exit $?). Press Return to close ──"; read`;
 
   // AppleScript with proper escaping
   const escaped = escapeForAppleScriptString(shellCmd);

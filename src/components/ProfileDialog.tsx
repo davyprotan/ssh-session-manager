@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Key, Lock, ShieldCheck, Star, Check, AlertCircle, ChevronDown, ChevronRight } from "lucide-react";
+import { Key, Lock, ShieldCheck, Star, Check, AlertCircle, ChevronDown, ChevronRight, Eye, EyeOff } from "lucide-react";
 import { COLOR_HEX, PROFILE_COLORS, type ProfileColor } from "@/lib/profile-colors";
 import type { Profile } from "@/lib/types";
 
@@ -35,6 +35,8 @@ export default function ProfileDialog({ open, onClose, onSave, profile, backLabe
   const [keyValid, setKeyValid] = useState<boolean | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [showSecret, setShowSecret] = useState(false);
+  const [secretFetched, setSecretFetched] = useState(false);
 
   useEffect(() => {
     if (profile) {
@@ -66,7 +68,33 @@ export default function ProfileDialog({ open, onClose, onSave, profile, backLabe
     }
     setAdvancedOpen(false);
     setError("");
+    setShowSecret(false);
+    setSecretFetched(false);
   }, [profile, open]);
+
+  // Lazily fetch the stored secret (password or passphrase) from server when user clicks the reveal eye.
+  async function revealSecret() {
+    if (!profile) {
+      setShowSecret(s => !s);
+      return;
+    }
+    if (showSecret) {
+      setShowSecret(false);
+      return;
+    }
+    // If we don't yet have the value loaded from the server, fetch it
+    if (!secretFetched && !password) {
+      try {
+        const res = await fetch(`/api/profiles/${profile.id}/secret`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.password) setPassword(data.password);
+        }
+      } catch {/* ignore */}
+      setSecretFetched(true);
+    }
+    setShowSecret(true);
+  }
 
   // Validate key file when path changes (debounced)
   useEffect(() => {
@@ -177,25 +205,62 @@ export default function ProfileDialog({ open, onClose, onSave, profile, backLabe
             <div className="space-y-1.5">
               <Label className="text-[12.5px] font-semibold" style={{ color: "var(--muted-fg)" }}>Key path</Label>
               <Input placeholder="~/.ssh/id_rsa" value={keyPath} onChange={e => setKeyPath(e.target.value)} className="font-mono text-sm" />
-              {keyValid === false && (
-                <p className="text-[12px] flex items-center gap-1" style={{ color: "#fbbf24" }}>
-                  <AlertCircle className="h-3 w-3" /> Key file not found at this path
-                </p>
-              )}
-              {keyValid === true && (
-                <p className="text-[12px] flex items-center gap-1" style={{ color: colorHex }}>
-                  <Check className="h-3 w-3" /> Key file found
-                </p>
-              )}
+              <div className="flex items-center justify-between">
+                {keyValid === false && (
+                  <p className="text-[12px] flex items-center gap-1" style={{ color: "#fbbf24" }}>
+                    <AlertCircle className="h-3 w-3" /> Key file not found at this path
+                  </p>
+                )}
+                {keyValid === true && (
+                  <p className="text-[12px] flex items-center gap-1" style={{ color: colorHex }}>
+                    <Check className="h-3 w-3" /> Key file found
+                  </p>
+                )}
+                {keyValid === null && <span />}
+                {keyPath && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      // Use file:// URL — Electron's setWindowOpenHandler routes externals to the OS
+                      navigator.clipboard.writeText(keyPath);
+                    }}
+                    className="text-[11.5px] underline-offset-2 hover:underline"
+                    style={{ color: "var(--muted-fg)" }}
+                    title="Copy path"
+                  >
+                    Copy path
+                  </button>
+                )}
+              </div>
             </div>
           )}
 
-          {authType === "password" && (
+          {(authType === "password" || authType === "key_with_passphrase") && (
             <div className="space-y-1.5">
-              <Label className="text-[12.5px] font-semibold" style={{ color: "var(--muted-fg)" }}>Password</Label>
-              <Input type="password" placeholder="Stored encrypted in OS keychain" value={password} onChange={e => setPassword(e.target.value)} />
+              <Label className="text-[12.5px] font-semibold" style={{ color: "var(--muted-fg)" }}>
+                {authType === "password" ? "Password" : "Passphrase"}
+              </Label>
+              <div className="relative">
+                <Input
+                  type={showSecret ? "text" : "password"}
+                  placeholder={profile && !password ? "•••••••• (click eye to reveal)" : "Stored encrypted in OS keychain"}
+                  value={password}
+                  onChange={e => { setPassword(e.target.value); setSecretFetched(true); }}
+                  className="pr-9 font-mono"
+                />
+                <button
+                  type="button"
+                  onClick={revealSecret}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 h-7 w-7 flex items-center justify-center rounded-md transition-colors"
+                  style={{ color: "var(--muted-fg)" }}
+                  title={showSecret ? "Hide" : "Show"}
+                  aria-label={showSecret ? "Hide" : "Show"}
+                >
+                  {showSecret ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                </button>
+              </div>
               <p className="text-[11px] flex items-center gap-1" style={{ color: "var(--subtle-fg)" }}>
-                <ShieldCheck className="h-3 w-3" /> Encrypted in macOS Keychain
+                <ShieldCheck className="h-3 w-3" /> Stored encrypted in macOS Keychain
               </p>
             </div>
           )}

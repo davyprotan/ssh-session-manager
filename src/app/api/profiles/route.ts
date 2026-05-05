@@ -37,7 +37,10 @@ export async function POST(req: NextRequest) {
   }
 
   const db = getDb();
-  const useKeychain = input.auth_type === 'password' && input.password && (await kcAvailable());
+  // Use keychain for any auth type that has a secret to store (password OR passphrase)
+  const hasSecret = !!input.password;
+  const usesSecret = input.auth_type === 'password' || input.auth_type === 'key_with_passphrase';
+  const useKeychain = usesSecret && hasSecret && (await kcAvailable());
 
   try {
     const id = db.transaction(() => {

@@ -28,7 +28,9 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   }
 
   const db = getDb();
-  const useKeychain = input.auth_type === 'password' && input.password && (await kcAvailable());
+  const hasSecret = !!input.password;
+  const usesSecret = input.auth_type === 'password' || input.auth_type === 'key_with_passphrase';
+  const useKeychain = usesSecret && hasSecret && (await kcAvailable());
 
   db.transaction(() => {
     if (input.is_default) db.prepare('UPDATE profiles SET is_default = 0 WHERE id != ?').run(idNum);
@@ -50,7 +52,8 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
 
   if (useKeychain && input.password) {
     await kcSet(idNum, input.password);
-  } else if (input.auth_type !== 'password') {
+  } else if (!usesSecret) {
+    // auth_type changed to plain SSH key — clean up any old keychain entry
     await kcDel(idNum);
   }
 
