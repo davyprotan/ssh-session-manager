@@ -2,7 +2,7 @@
 
 All notable changes to **SSH Manager**.
 
-## [Unreleased]
+## [0.3.3] — 2026-05-05
 
 ### Project hygiene
 - Add **PolyForm Noncommercial 1.0.0** license (see `LICENSE`) — free for personal/hobby/research/education use, no commercial use
