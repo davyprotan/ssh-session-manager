@@ -2,6 +2,11 @@
 
 All notable changes to **SSH Manager**.
 
+## [0.6.1] — 2026-05-05
+
+### Critical fix
+- **Bundled `.app` was 500-erroring every API call.** Turbopack production builds were mangling external native module names (`better-sqlite3-<hash>`, `keytar-<hash>`) but the runtime couldn't resolve them inside the packaged app. Switched the production build to webpack (`next build --webpack`). Dev mode was unaffected.
+
 ## [0.6.0] — 2026-05-05
 
 ### Saved vs History split
