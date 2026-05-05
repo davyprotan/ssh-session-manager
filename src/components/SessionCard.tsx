@@ -3,7 +3,7 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { Terminal, Key, Lock, MoreVertical, Pencil, Trash2, Copy, Clock, UserRound, ShieldCheck, Files, Network, FolderClosed } from "lucide-react";
+import { Terminal, Key, Lock, MoreVertical, Pencil, Trash2, Copy, Clock, UserRound, ShieldCheck, Files, Network, FolderClosed, KeyRound } from "lucide-react";
 import { COLOR_HEX, type ProfileColor } from "@/lib/profile-colors";
 import type { Session } from "@/lib/types";
 import { toast } from "sonner";
@@ -14,6 +14,7 @@ interface Props {
   onDelete: (s: Session) => void;
   onConnect: (s: Session) => void;
   onClone: (s: Session) => void;
+  onSetupPasswordless?: (s: Session) => void;
 }
 
 function timeAgo(dateStr: string | null): string {
@@ -27,7 +28,7 @@ function timeAgo(dateStr: string | null): string {
   return `${Math.floor(h / 24)}d ago`;
 }
 
-export default function SessionCard({ session, onEdit, onDelete, onConnect, onClone }: Props) {
+export default function SessionCard({ session, onEdit, onDelete, onConnect, onClone, onSetupPasswordless }: Props) {
   const tags: string[] = JSON.parse(session.tags || "[]");
   const accent = session.profile_color ? COLOR_HEX[session.profile_color as ProfileColor] || COLOR_HEX.cyan : COLOR_HEX.cyan;
 
@@ -86,6 +87,11 @@ export default function SessionCard({ session, onEdit, onDelete, onConnect, onCl
               <DropdownMenuItem onClick={() => onClone(session)}>
                 <Files className="h-3.5 w-3.5 mr-2" /> Duplicate
               </DropdownMenuItem>
+              {session.profile_auth_type === "password" && onSetupPasswordless && (
+                <DropdownMenuItem onClick={() => onSetupPasswordless(session)}>
+                  <KeyRound className="h-3.5 w-3.5 mr-2" style={{ color: accent }} /> Set up passwordless login
+                </DropdownMenuItem>
+              )}
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={() => onEdit(session)}>
                 <Pencil className="h-3.5 w-3.5 mr-2" /> Edit

@@ -2,6 +2,24 @@
 
 All notable changes to **SSH Manager**.
 
+## [0.7.0] — 2026-05-05
+
+### Set up passwordless login (the proper fix)
+SSH passwords are no longer typed every time. New flow on any password-auth session:
+
+1. Session card menu → **"Set up passwordless login"**
+2. App generates an `ed25519` key in `~/.ssh/ssh-manager/` (or reuses existing)
+3. A terminal opens with `ssh-copy-id` pre-typed — type your password **one last time**
+4. Click "It worked — switch to key auth" — the profile is updated in place
+5. From now on, connecting to that host opens straight to the shell. No prompts
+
+Behind the scenes:
+- New `lib/ssh-keygen.ts` — ed25519 key generator with 0600 perms
+- `POST /api/keys/generate` — origin-guarded key creation
+- `POST /api/keys/copy-id` — opens Terminal with `ssh-copy-id` for the host
+- New `SetupPasswordlessDialog` walks the user through the steps
+- Menu item only shows on profiles using password auth
+
 ## [0.6.3] — 2026-05-05
 
 ### Connect: terminal stays open & shows errors

@@ -16,6 +16,7 @@ import QuickConnectDialog from "@/components/QuickConnectDialog";
 import SettingsDialog from "@/components/SettingsDialog";
 import ImportSshConfigDialog from "@/components/ImportSshConfigDialog";
 import HistoryRow from "@/components/HistoryRow";
+import SetupPasswordlessDialog from "@/components/SetupPasswordlessDialog";
 import { toast } from "sonner";
 import type { Session, Profile, Folder, HistoryEntry } from "@/lib/types";
 import { COLOR_HEX, type ProfileColor } from "@/lib/profile-colors";
@@ -42,6 +43,7 @@ export default function Home() {
   const [quickConnectOpen, setQuickConnectOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [sshImportOpen, setSshImportOpen] = useState(false);
+  const [passwordlessTarget, setPasswordlessTarget] = useState<Session | null>(null);
 
   const [deleteTarget, setDeleteTarget] = useState<{ type: "session" | "profile"; id: number; name: string } | null>(null);
 
@@ -292,6 +294,7 @@ export default function Home() {
                     onEdit={s => { setEditingSession(s); setSessionDialogOpen(true); }}
                     onClone={handleClone}
                     onDelete={s => setDeleteTarget({ type: "session", id: s.id, name: s.name })}
+                    onSetupPasswordless={s => setPasswordlessTarget(s)}
                   />
                 ))}
               </div>
@@ -436,6 +439,13 @@ export default function Home() {
         onClose={() => setSshImportOpen(false)}
         onImported={refreshAll}
       />
+      <SetupPasswordlessDialog
+        open={!!passwordlessTarget}
+        onClose={() => setPasswordlessTarget(null)}
+        session={passwordlessTarget}
+        profile={passwordlessTarget ? profiles.find(p => p.id === passwordlessTarget.profile_id) ?? null : null}
+        onDone={() => { fetchProfiles(); fetchSessions(); }}
+      />
 
       <AlertDialog open={!!deleteTarget} onOpenChange={open => !open && setDeleteTarget(null)}>
         <AlertDialogContent style={{ background: "var(--card)", borderColor: "var(--border)" }}>
@@ -458,13 +468,14 @@ export default function Home() {
   );
 }
 
-function FolderSection({ folder, sessions, onConnect, onEdit, onClone, onDelete }: {
+function FolderSection({ folder, sessions, onConnect, onEdit, onClone, onDelete, onSetupPasswordless }: {
   folder: Folder | null;
   sessions: Session[];
   onConnect: (s: Session) => void;
   onEdit: (s: Session) => void;
   onClone: (s: Session) => void;
   onDelete: (s: Session) => void;
+  onSetupPasswordless: (s: Session) => void;
 }) {
   const color = folder ? COLOR_HEX[(folder.color as ProfileColor) || 'cyan'] || COLOR_HEX.cyan : null;
   return (
@@ -488,6 +499,7 @@ function FolderSection({ folder, sessions, onConnect, onEdit, onClone, onDelete 
             onEdit={onEdit}
             onClone={onClone}
             onDelete={onDelete}
+            onSetupPasswordless={onSetupPasswordless}
           />
         ))}
       </div>
