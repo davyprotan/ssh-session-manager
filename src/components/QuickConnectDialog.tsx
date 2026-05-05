@@ -5,7 +5,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogD
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Zap, Terminal } from "lucide-react";
+import { Zap, Terminal, Check, BookmarkPlus } from "lucide-react";
 import ProfilePicker from "./ProfilePicker";
 import ProfileDialog from "./ProfileDialog";
 import { toast } from "sonner";
@@ -16,12 +16,15 @@ interface Props {
   onClose: () => void;
   profiles: Profile[];
   onProfilesChanged: () => void;
+  onSessionSaved?: () => void;
 }
 
-export default function QuickConnectDialog({ open, onClose, profiles, onProfilesChanged }: Props) {
+export default function QuickConnectDialog({ open, onClose, profiles, onProfilesChanged, onSessionSaved }: Props) {
   const [host, setHost] = useState("");
   const [port, setPort] = useState("");
   const [profileId, setProfileId] = useState<number | null>(null);
+  const [saveSession, setSaveSession] = useState(false);
+  const [sessionName, setSessionName] = useState("");
   const [connecting, setConnecting] = useState(false);
   const [profileDialogOpen, setProfileDialogOpen] = useState(false);
 
@@ -29,22 +32,63 @@ export default function QuickConnectDialog({ open, onClose, profiles, onProfiles
     if (open) {
       setHost("");
       setPort("");
+      setSaveSession(false);
+      setSessionName("");
       const def = profiles.find(p => p.is_default) || profiles[0];
       setProfileId(def?.id ?? null);
     }
   }, [open, profiles]);
 
+  // Default the session name to the host as the user types
+  useEffect(() => {
+    if (saveSession && host && !sessionName) setSessionName(host);
+  }, [host, saveSession, sessionName]);
+
   async function handleConnect() {
     if (!host.trim() || !profileId) return;
     setConnecting(true);
+
+    let savedSessionId: number | null = null;
+
+    if (saveSession) {
+      const finalName = (sessionName || host).trim();
+      const saveRes = await fetch("/api/sessions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: finalName,
+          host: host.trim(),
+          port: port ? parseInt(port) : 22,
+          profile_id: profileId,
+          tags: [],
+        }),
+      });
+      if (saveRes.ok) {
+        const saved = await saveRes.json();
+        savedSessionId = saved.id;
+        toast.success(`Saved session "${finalName}"`);
+        onSessionSaved?.();
+      } else {
+        const err = await saveRes.json().catch(() => ({}));
+        toast.error("Failed to save session", { description: err.error });
+        setConnecting(false);
+        return;
+      }
+    }
+
+    // Use the saved session_id if we just created it, else quick-connect via host+profile
+    const connectBody = savedSessionId
+      ? { session_id: savedSessionId }
+      : {
+          host: host.trim(),
+          profile_id: profileId,
+          port: port ? parseInt(port) : undefined,
+        };
+
     const res = await fetch("/api/connect", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        host: host.trim(),
-        profile_id: profileId,
-        port: port ? parseInt(port) : undefined,
-      }),
+      body: JSON.stringify(connectBody),
     });
     setConnecting(false);
     if (res.ok) {
@@ -55,6 +99,8 @@ export default function QuickConnectDialog({ open, onClose, profiles, onProfiles
       toast.error("Failed to connect");
     }
   }
+
+  const canSubmit = !!host.trim() && !!profileId && !connecting;
 
   return (
     <>
@@ -68,7 +114,7 @@ export default function QuickConnectDialog({ open, onClose, profiles, onProfiles
               Quick Connect
             </DialogTitle>
             <DialogDescription style={{ color: "var(--muted-fg)" }}>
-              Connect to any host without saving it. Pick which credentials to use.
+              Connect to any host. Optionally save it as a session.
             </DialogDescription>
           </DialogHeader>
 
@@ -82,7 +128,7 @@ export default function QuickConnectDialog({ open, onClose, profiles, onProfiles
                   placeholder="server.example.com"
                   value={host}
                   onChange={e => setHost(e.target.value)}
-                  onKeyDown={e => { if (e.key === "Enter" && host.trim() && profileId) handleConnect(); }}
+                  onKeyDown={e => { if (e.key === "Enter" && canSubmit) handleConnect(); }}
                 />
               </div>
               <div className="space-y-1.5">
@@ -100,18 +146,59 @@ export default function QuickConnectDialog({ open, onClose, profiles, onProfiles
                 onNewProfile={() => setProfileDialogOpen(true)}
               />
             </div>
+
+            {/* Save as session toggle */}
+            <button
+              type="button"
+              onClick={() => setSaveSession(s => !s)}
+              className="flex items-center gap-3 w-full rounded-lg px-3 py-2 transition-colors text-left"
+              style={{
+                background: saveSession ? "color-mix(in srgb, var(--accent) 8%, transparent)" : "transparent",
+                border: `1px solid ${saveSession ? "color-mix(in srgb, var(--accent) 40%, transparent)" : "var(--border)"}`,
+              }}
+            >
+              <div
+                className="flex h-5 w-5 items-center justify-center rounded transition-colors shrink-0"
+                style={{
+                  background: saveSession ? "var(--accent)" : "transparent",
+                  border: `1.5px solid ${saveSession ? "var(--accent)" : "var(--border)"}`,
+                }}
+              >
+                {saveSession && <Check className="h-3.5 w-3.5" style={{ color: "var(--accent-foreground)" }} strokeWidth={3} />}
+              </div>
+              <div className="flex-1">
+                <p className="text-[14px] font-semibold flex items-center gap-1.5" style={{ color: "var(--foreground)" }}>
+                  <BookmarkPlus className="h-3.5 w-3.5" style={{ color: saveSession ? "var(--accent)" : "var(--muted-fg)" }} />
+                  Save as a session
+                </p>
+                <p className="text-[12px] mt-0.5" style={{ color: "var(--muted-fg)" }}>
+                  So you can connect again from the dashboard
+                </p>
+              </div>
+            </button>
+
+            {saveSession && (
+              <div className="space-y-1.5 pl-3 border-l-2" style={{ borderColor: "color-mix(in srgb, var(--accent) 30%, transparent)" }}>
+                <Label className="text-[12.5px] font-semibold" style={{ color: "var(--muted-fg)" }}>Session name</Label>
+                <Input
+                  placeholder={host || "My Server"}
+                  value={sessionName}
+                  onChange={e => setSessionName(e.target.value)}
+                />
+              </div>
+            )}
           </div>
 
           <DialogFooter className="gap-2">
             <Button variant="outline" onClick={onClose}>Cancel</Button>
             <Button
               onClick={handleConnect}
-              disabled={connecting || !host.trim() || !profileId}
+              disabled={!canSubmit}
               className="gap-1.5"
               style={{ background: "var(--accent)", color: "var(--accent-foreground)", border: "none" }}
             >
-              <Terminal className="h-3.5 w-3.5" />
-              {connecting ? "Opening…" : "Connect"}
+              {saveSession ? <BookmarkPlus className="h-3.5 w-3.5" /> : <Terminal className="h-3.5 w-3.5" />}
+              {connecting ? "Opening…" : saveSession ? "Save & Connect" : "Connect"}
             </Button>
           </DialogFooter>
         </DialogContent>

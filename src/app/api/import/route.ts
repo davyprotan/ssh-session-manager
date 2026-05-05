@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
 import { setPassword as kcSet, isAvailable as kcAvailable } from '@/lib/keychain';
 import { assertSafeOrigin } from '@/lib/api-guard';
+import { decryptPayload, isEncryptedEnvelope, type EncryptedEnvelope } from '@/lib/backup-crypto';
 
 interface ImportFolder { id?: number; name: string; color?: string; sort_order?: number }
 interface ImportProfile {
@@ -21,12 +22,32 @@ export async function POST(req: NextRequest) {
   const guard = assertSafeOrigin(req);
   if (guard) return guard;
 
-  const body = await req.json() as {
+  const rawBody = await req.json() as Record<string, unknown>;
+
+  // If this looks like an encrypted envelope, decrypt with the supplied password.
+  let body: {
     folders?: ImportFolder[];
     profiles?: ImportProfile[];
     sessions?: ImportSession[];
     mode?: 'merge' | 'replace';
   };
+
+  if (isEncryptedEnvelope(rawBody)) {
+    const password = typeof (rawBody as Record<string, unknown>).password === 'string'
+      ? (rawBody as Record<string, unknown>).password as string
+      : undefined;
+    if (!password) {
+      return NextResponse.json({ error: 'password required for encrypted backup', needs_password: true }, { status: 400 });
+    }
+    try {
+      body = await decryptPayload(rawBody as EncryptedEnvelope, password) as typeof body;
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'decrypt failed';
+      return NextResponse.json({ error: msg }, { status: 400 });
+    }
+  } else {
+    body = rawBody as typeof body;
+  }
 
   const mode = body.mode || 'merge';
   const db = getDb();

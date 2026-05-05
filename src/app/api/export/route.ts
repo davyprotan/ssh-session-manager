@@ -1,64 +1,49 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { getDb } from '@/lib/db';
-import { getPassword as kcGet } from '@/lib/keychain';
-import { assertSafeRead } from '@/lib/api-guard';
+import { NextRequest, NextResponse } from "next/server";
+import { assertSafeRead } from "@/lib/api-guard";
+import { buildExportPayload } from "@/lib/backup";
+import { encryptPayload } from "@/lib/backup-crypto";
 
-interface ProfileRow {
-  id: number;
-  password: string | null;
-  uses_keychain?: number;
-  [k: string]: unknown;
-}
-
-// GET → safe export, NO plaintext passwords
+// GET → unencrypted, no secrets (safe default for browser-triggered downloads)
 export async function GET(req: NextRequest) {
   const guard = assertSafeRead(req);
   if (guard) return guard;
 
-  return buildExport(req, false);
+  const payload = await buildExportPayload(false);
+  return jsonAttachment(payload, "ssh-manager-backup", false, false);
 }
 
-// POST → with `?include_secrets=1` body, includes plaintext passwords pulled from keychain.
-// Requires the same origin guard. Use this from the in-app Settings dialog only.
+// POST { include_secrets?: bool, password?: string }
+//   - include_secrets=true: pulls keychain plaintext into the payload
+//   - password: encrypts the payload (AES-256-GCM with scrypt KDF). Implies include_secrets.
 export async function POST(req: NextRequest) {
   const guard = assertSafeRead(req);
   if (guard) return guard;
 
   const body = await req.json().catch(() => ({}));
-  const includeSecrets = body && body.include_secrets === true;
-  return buildExport(req, includeSecrets);
-}
+  const password = typeof body.password === "string" && body.password.length > 0 ? body.password : undefined;
+  const includeSecrets = !!body.include_secrets || !!password;
 
-async function buildExport(req: NextRequest, includeSecrets: boolean) {
-  const db = getDb();
-  const folders = db.prepare('SELECT * FROM folders ORDER BY id').all();
-  const profiles = db.prepare('SELECT * FROM profiles ORDER BY id').all() as ProfileRow[];
-  const sessions = db.prepare('SELECT * FROM sessions ORDER BY id').all();
-
-  for (const p of profiles) {
-    if (!includeSecrets) {
-      // Strip plaintext password from export by default
-      p.password = null;
-    } else if (p.uses_keychain) {
-      const pwd = await kcGet(p.id);
-      if (pwd) p.password = pwd;
-    }
-    delete p.uses_keychain;
+  if (password && password.length < 8) {
+    return NextResponse.json({ error: "Password must be at least 8 characters" }, { status: 400 });
   }
 
-  const payload = {
-    version: 1,
-    exported_at: new Date().toISOString(),
-    contains_secrets: includeSecrets,
-    folders,
-    profiles,
-    sessions,
-  };
+  const payload = await buildExportPayload(includeSecrets);
 
-  return new NextResponse(JSON.stringify(payload, null, 2), {
+  if (password) {
+    const env = await encryptPayload(payload, password);
+    return jsonAttachment(env, "ssh-manager-backup", true, true);
+  }
+  return jsonAttachment(payload, "ssh-manager-backup", false, includeSecrets);
+}
+
+function jsonAttachment(obj: unknown, baseName: string, encrypted: boolean, hasSecrets: boolean) {
+  const date = new Date().toISOString().split("T")[0];
+  const suffix = encrypted ? ".encrypted" : (hasSecrets ? ".with-secrets" : "");
+  const filename = `${baseName}-${date}${suffix}.json`;
+  return new NextResponse(JSON.stringify(obj, null, 2), {
     headers: {
-      'Content-Type': 'application/json',
-      'Content-Disposition': `attachment; filename="ssh-manager-backup-${new Date().toISOString().split('T')[0]}${includeSecrets ? '-with-secrets' : ''}.json"`,
+      "Content-Type": "application/json",
+      "Content-Disposition": `attachment; filename="${filename}"`,
     },
   });
 }

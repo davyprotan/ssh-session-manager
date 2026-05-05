@@ -2,6 +2,25 @@
 
 All notable changes to **SSH Manager**.
 
+## [0.4.0] — 2026-05-05
+
+### Backups (industry-grade)
+- **Encrypted backups** — AES-256-GCM with scrypt KDF (N=2^17, r=8, p=1, OWASP-recommended). User supplies a master password; without it the backup can never be decrypted
+- Backup files now write to a managed **`~/.ssh-session-manager/backups/`** directory with `0600` permissions
+- **Backup history** in Settings — list of all backups with timestamp, size, encrypted/secrets indicators
+- **One-click restore** from history; encrypted backups prompt for password
+- **Auto-detect encryption** on import — drag any backup file in and it'll prompt for password if needed
+- New endpoints: `/api/backup/run`, `/api/backup/list`, `/api/backup/restore`, `/api/backup/delete`
+- `/api/export` now optionally encrypts (POST `{password, include_secrets}`)
+
+### Quick Connect
+- New "**Save as a session**" toggle — connect, and optionally persist the host+profile as a saved session in one step
+
+### Appearance
+- **Text size** scale (Compact / Normal / Comfortable / Large) — applied via CSS `zoom` so every layout element rescales together
+- **Font family** picker — Geist Sans, System, Inter, Serif, Monospace
+- Both saved alongside the theme in `localStorage`
+
 ## [0.3.3] — 2026-05-05
 
 ### Project hygiene

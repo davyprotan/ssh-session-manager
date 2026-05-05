@@ -339,6 +339,7 @@ export default function Home() {
         onClose={() => setQuickConnectOpen(false)}
         profiles={profiles}
         onProfilesChanged={() => { fetchProfiles(); fetchSessions(); }}
+        onSessionSaved={fetchSessions}
       />
       <SettingsDialog
         open={settingsOpen}

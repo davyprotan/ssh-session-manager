@@ -2,36 +2,66 @@
 
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import { THEMES, DEFAULT_THEME_ID, getTheme, applyTheme, type Theme } from "@/lib/themes";
+import {
+  UI_SCALES, FONT_FAMILIES, DEFAULT_SCALE_ID, DEFAULT_FONT_ID,
+  applyAppearance,
+} from "@/lib/appearance";
 
-const STORAGE_KEY = "ssh-manager-theme";
+const THEME_KEY = "ssh-manager-theme";
+const SCALE_KEY = "ssh-manager-scale";
+const FONT_KEY = "ssh-manager-font";
 
 interface ThemeContextValue {
   theme: Theme;
-  setTheme: (id: string) => void;
   themes: Theme[];
+  setTheme: (id: string) => void;
+  scaleId: string;
+  setScale: (id: string) => void;
+  fontId: string;
+  setFont: (id: string) => void;
 }
 
 const ThemeContext = createContext<ThemeContextValue | null>(null);
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const [themeId, setThemeId] = useState<string>(DEFAULT_THEME_ID);
+  const [scaleId, setScaleId] = useState<string>(DEFAULT_SCALE_ID);
+  const [fontId, setFontId] = useState<string>(DEFAULT_FONT_ID);
 
-  // Initial load from localStorage
   useEffect(() => {
-    const stored = typeof window !== "undefined" ? localStorage.getItem(STORAGE_KEY) : null;
-    const id = stored && THEMES.some(t => t.id === stored) ? stored : DEFAULT_THEME_ID;
-    setThemeId(id);
-    applyTheme(getTheme(id));
+    if (typeof window === "undefined") return;
+    const t = localStorage.getItem(THEME_KEY);
+    const s = localStorage.getItem(SCALE_KEY);
+    const f = localStorage.getItem(FONT_KEY);
+    const tId = t && THEMES.some(x => x.id === t) ? t : DEFAULT_THEME_ID;
+    const sId = s && UI_SCALES.some(x => x.id === s) ? s : DEFAULT_SCALE_ID;
+    const fId = f && FONT_FAMILIES.some(x => x.id === f) ? f : DEFAULT_FONT_ID;
+    setThemeId(tId); setScaleId(sId); setFontId(fId);
+    applyTheme(getTheme(tId));
+    applyAppearance(sId, fId);
   }, []);
 
   const setTheme = useCallback((id: string) => {
-    setThemeId(id);
-    applyTheme(getTheme(id));
-    try { localStorage.setItem(STORAGE_KEY, id); } catch {}
+    setThemeId(id); applyTheme(getTheme(id));
+    try { localStorage.setItem(THEME_KEY, id); } catch {}
   }, []);
 
+  const setScale = useCallback((id: string) => {
+    setScaleId(id); applyAppearance(id, fontId);
+    try { localStorage.setItem(SCALE_KEY, id); } catch {}
+  }, [fontId]);
+
+  const setFont = useCallback((id: string) => {
+    setFontId(id); applyAppearance(scaleId, id);
+    try { localStorage.setItem(FONT_KEY, id); } catch {}
+  }, [scaleId]);
+
   return (
-    <ThemeContext.Provider value={{ theme: getTheme(themeId), setTheme, themes: THEMES }}>
+    <ThemeContext.Provider value={{
+      theme: getTheme(themeId), themes: THEMES, setTheme,
+      scaleId, setScale,
+      fontId, setFont,
+    }}>
       {children}
     </ThemeContext.Provider>
   );
