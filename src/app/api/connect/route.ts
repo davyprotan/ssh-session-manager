@@ -134,5 +134,46 @@ export async function POST(req: NextRequest) {
     if (err) console.error('AppleScript error:', err);
   });
 
+  // Log to history (best-effort; never block the connection on this)
+  try {
+    let profileId: number | null = null;
+    let profileName: string | null = null;
+    let profileColor: string | null = null;
+    let sessionId: number | null = null;
+    let sessionName: string | null = null;
+
+    if (typeof body.session_id === 'number') {
+      sessionId = body.session_id;
+      const s = db.prepare('SELECT name, profile_id FROM sessions WHERE id = ?').get(sessionId) as { name: string; profile_id: number | null } | undefined;
+      if (s) {
+        sessionName = s.name;
+        profileId = s.profile_id;
+      }
+    } else if (typeof body.profile_id === 'number') {
+      profileId = body.profile_id;
+    }
+
+    if (profileId) {
+      const p = db.prepare('SELECT name, color FROM profiles WHERE id = ?').get(profileId) as { name: string; color: string } | undefined;
+      if (p) { profileName = p.name; profileColor = p.color; }
+    }
+
+    db.prepare(`
+      INSERT INTO connection_history
+        (host, port, username, jump_host, profile_id, session_id,
+         profile_name_snapshot, profile_color_snapshot, session_name_snapshot)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(host!, port!, username || null, jumpHost || null, profileId, sessionId, profileName, profileColor, sessionName);
+
+    // Trim to last 500 entries to keep the table bounded
+    db.prepare(`
+      DELETE FROM connection_history WHERE id IN (
+        SELECT id FROM connection_history ORDER BY connected_at DESC LIMIT -1 OFFSET 500
+      )
+    `).run();
+  } catch (e) {
+    console.warn('Failed to write history entry:', e);
+  }
+
   return NextResponse.json({ ok: true, command: result.display });
 }

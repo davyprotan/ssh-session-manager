@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Plus, Search, Server, KeyRound, Terminal, Wifi, Zap, Settings, FolderClosed, ArrowUpDown } from "lucide-react";
+import { Plus, Search, Server, KeyRound, Terminal, Wifi, Zap, Settings, FolderClosed, ArrowUpDown, Bookmark, History as HistoryIcon, Trash2 } from "lucide-react";
 import ThemePicker from "@/components/ThemePicker";
 import UpdateBanner from "@/components/UpdateBanner";
 import SessionCard from "@/components/SessionCard";
@@ -15,21 +15,23 @@ import ProfileDialog from "@/components/ProfileDialog";
 import QuickConnectDialog from "@/components/QuickConnectDialog";
 import SettingsDialog from "@/components/SettingsDialog";
 import ImportSshConfigDialog from "@/components/ImportSshConfigDialog";
+import HistoryRow from "@/components/HistoryRow";
 import { toast } from "sonner";
-import type { Session, Profile, Folder } from "@/lib/types";
+import type { Session, Profile, Folder, HistoryEntry } from "@/lib/types";
 import { COLOR_HEX, type ProfileColor } from "@/lib/profile-colors";
 import { cn } from "@/lib/utils";
 
-type Tab = "sessions" | "profiles";
+type Tab = "saved" | "history" | "profiles";
 type SortBy = "name" | "last_connected" | "created";
 
 const SORT_KEY = "ssh-manager-sort";
 
 export default function Home() {
-  const [tab, setTab] = useState<Tab>("sessions");
+  const [tab, setTab] = useState<Tab>("saved");
   const [sessions, setSessions] = useState<Session[]>([]);
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [folders, setFolders] = useState<Folder[]>([]);
+  const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [search, setSearch] = useState("");
   const [sortBy, setSortBy] = useState<SortBy>("name");
 
@@ -58,14 +60,19 @@ export default function Home() {
     setFolders(await res.json());
   }, []);
 
+  const fetchHistory = useCallback(async () => {
+    const res = await fetch("/api/history");
+    if (res.ok) setHistory(await res.json());
+  }, []);
+
   useEffect(() => {
-    fetchSessions(); fetchProfiles(); fetchFolders();
+    fetchSessions(); fetchProfiles(); fetchFolders(); fetchHistory();
     // Restore sort preference
     try {
       const saved = localStorage.getItem(SORT_KEY) as SortBy | null;
       if (saved) setSortBy(saved);
     } catch {}
-  }, [fetchSessions, fetchProfiles, fetchFolders]);
+  }, [fetchSessions, fetchProfiles, fetchFolders, fetchHistory]);
 
   function changeSort(s: SortBy) {
     setSortBy(s);
@@ -84,6 +91,7 @@ export default function Home() {
     if (res.ok) {
       toast.success(`Opened terminal for ${session.name}`, { description: data.command, duration: 4000 });
       fetchSessions();
+      fetchHistory();
     } else {
       toast.error("Failed to open terminal");
     }
@@ -162,7 +170,7 @@ export default function Home() {
   function openNewSession() { setEditingSession(null); setSessionDialogOpen(true); }
   function openNewProfile() { setEditingProfile(null); setProfileDialogOpen(true); }
 
-  function refreshAll() { fetchSessions(); fetchProfiles(); fetchFolders(); }
+  function refreshAll() { fetchSessions(); fetchProfiles(); fetchFolders(); fetchHistory(); }
 
   return (
     <div className="flex flex-col min-h-screen" style={{ background: "var(--background)" }}>
@@ -171,7 +179,7 @@ export default function Home() {
       <header className="sticky top-0 z-20 border-b" style={{ borderColor: "var(--border)", background: "color-mix(in srgb, var(--background) 85%, transparent)", backdropFilter: "blur(12px)" }}>
         <div className="max-w-5xl mx-auto px-5 h-14 flex items-center gap-3">
           <button
-            onClick={() => { setTab("sessions"); setSearch(""); }}
+            onClick={() => { setTab("saved"); setSearch(""); }}
             className="flex items-center gap-2.5 shrink-0 mr-2 rounded-lg px-1 -mx-1 py-1 -my-1 transition-colors hover:bg-accent/40"
             title="Go to dashboard"
           >
@@ -182,8 +190,11 @@ export default function Home() {
           </button>
 
           <nav className="flex gap-1">
-            <TabButton active={tab === "sessions"} onClick={() => setTab("sessions")} icon={<Server className="h-3.5 w-3.5" />} count={sessions.length}>
-              Sessions
+            <TabButton active={tab === "saved"} onClick={() => setTab("saved")} icon={<Bookmark className="h-3.5 w-3.5" />} count={sessions.length}>
+              Saved
+            </TabButton>
+            <TabButton active={tab === "history"} onClick={() => setTab("history")} icon={<HistoryIcon className="h-3.5 w-3.5" />} count={history.length}>
+              History
             </TabButton>
             <TabButton active={tab === "profiles"} onClick={() => setTab("profiles")} icon={<KeyRound className="h-3.5 w-3.5" />} count={profiles.length}>
               Profiles
@@ -203,9 +214,9 @@ export default function Home() {
             />
           </div>
 
-          {tab === "sessions" && (
+          {tab === "saved" && (
             <Select value={sortBy} onValueChange={(v) => v && changeSort(v as SortBy)}>
-              <SelectTrigger className="h-8 w-auto gap-1 px-2 text-sm" style={{ background: "var(--muted)", borderColor: "var(--border)", color: "var(--muted-fg)" }} title="Sort sessions">
+              <SelectTrigger className="h-8 w-auto gap-1 px-2 text-sm" style={{ background: "var(--muted)", borderColor: "var(--border)", color: "var(--muted-fg)" }} title="Sort saved hosts">
                 <ArrowUpDown className="h-3.5 w-3.5" />
               </SelectTrigger>
               <SelectContent>
@@ -238,22 +249,22 @@ export default function Home() {
             size="sm"
             className="h-8 gap-1.5 text-sm font-medium"
             style={{ background: "var(--accent)", color: "var(--accent-foreground)", border: "none" }}
-            onClick={tab === "sessions" ? openNewSession : openNewProfile}
+            onClick={tab === "profiles" ? openNewProfile : openNewSession}
           >
             <Plus className="h-3.5 w-3.5" />
-            {tab === "sessions" ? "New session" : "New profile"}
+            {tab === "profiles" ? "New profile" : "New session"}
           </Button>
         </div>
       </header>
 
       <main className="flex-1 max-w-5xl mx-auto w-full px-5 py-7">
-        {tab === "sessions" && (
+        {tab === "saved" && (
           <>
             {sessions.length === 0 ? (
               <EmptyState
                 icon={<Wifi className="h-12 w-12" />}
-                title="No sessions yet"
-                description="Add servers manually, or import them from your existing ~/.ssh/config in one click."
+                title="No saved hosts yet"
+                description="Save servers you connect to often, or import them from your existing ~/.ssh/config in one click."
                 action={
                   <div className="flex flex-wrap gap-2 justify-center">
                     <Button variant="outline" size="sm" onClick={() => setSshImportOpen(true)} className="gap-1.5" style={{ borderColor: "var(--border)", color: "var(--muted-fg)" }}>
@@ -284,6 +295,77 @@ export default function Home() {
                   />
                 ))}
               </div>
+            )}
+          </>
+        )}
+
+        {tab === "history" && (
+          <>
+            {history.length === 0 ? (
+              <EmptyState
+                icon={<HistoryIcon className="h-12 w-12" />}
+                title="No connections yet"
+                description="Every time you connect to a host — saved or quick — it'll show up here. Click any row to reconnect or save it."
+              />
+            ) : (
+              <>
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-[12.5px]" style={{ color: "var(--muted-fg)" }}>
+                    Last {history.length} connection{history.length !== 1 ? "s" : ""}
+                  </p>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-7 px-2 text-[12px] gap-1"
+                    style={{ color: "var(--muted-fg)" }}
+                    onClick={async () => {
+                      if (!confirm("Clear all connection history?")) return;
+                      const res = await fetch("/api/history", { method: "DELETE" });
+                      if (res.ok) { toast.success("History cleared"); fetchHistory(); }
+                    }}
+                  >
+                    <Trash2 className="h-3 w-3" />
+                    Clear history
+                  </Button>
+                </div>
+                <div className="flex flex-col gap-2">
+                  {history.filter(h => {
+                    if (!search) return true;
+                    const q = search.toLowerCase();
+                    return h.host.toLowerCase().includes(q) || (h.username || "").toLowerCase().includes(q);
+                  }).map(h => (
+                    <HistoryRow
+                      key={h.id}
+                      entry={h}
+                      onConnect={async (e) => {
+                        const body = e.session_id ? { session_id: e.session_id } : { host: e.host, profile_id: e.profile_id, port: e.port };
+                        const res = await fetch("/api/connect", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+                        if (res.ok) {
+                          const data = await res.json();
+                          toast.success(`Connecting to ${e.host}`, { description: data.command, duration: 4000 });
+                          fetchHistory();
+                          fetchSessions();
+                        } else {
+                          toast.error("Failed to reconnect");
+                        }
+                      }}
+                      onSaveAsSession={async (e) => {
+                        const res = await fetch("/api/sessions", {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ name: e.host, host: e.host, port: e.port, profile_id: e.profile_id, jump_host: e.jump_host, tags: [] }),
+                        });
+                        if (res.ok) { toast.success(`Saved "${e.host}"`); fetchSessions(); fetchHistory(); }
+                        else toast.error("Failed to save");
+                      }}
+                      onDelete={async (e) => {
+                        const res = await fetch(`/api/history/${e.id}`, { method: "DELETE" });
+                        if (res.ok) { toast.success("Removed from history"); fetchHistory(); }
+                      }}
+                    />
+                  ))}
+                </div>
+              </>
             )}
           </>
         )}

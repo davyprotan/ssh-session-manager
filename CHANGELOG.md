@@ -2,6 +2,27 @@
 
 All notable changes to **SSH Manager**.
 
+## [0.6.0] — 2026-05-05
+
+### Saved vs History split
+- **"Saved" tab** (renamed from Sessions) — explicitly bookmarked hosts
+- **New "History" tab** — every connection (saved or quick), newest first
+- History row shows: timestamp, host, profile, jump host, "saved" badge if it's a known session
+- Per-row actions: **Reconnect**, **Save as session** (for ad-hoc connects), **Remove from history**
+- **Clear all history** button
+- Bounded to last 500 connections
+- New schema (v4) `connection_history` table; auto-migrated on upgrade
+
+### Electerm import
+- Drag any Electerm `bookmarks-*.json` into Settings → Import — auto-detected and routed to a dedicated importer
+- Inline private keys are extracted, deduplicated by content hash, and written to `~/.ssh/ssh-manager-imported/` with 0600 perms
+- Passphrases & passwords go straight into macOS Keychain
+- Bookmark groups → folders (non-`default` ones)
+- Profiles auto-created and deduplicated by `(user, key, port)`
+
+### Bug fix: stray Dock icon
+- The bundled Next.js server process now spawns through the Renderer Helper binary (which has `LSUIElement: true`) so it stops appearing as a separate "exec" entry next to the SSH Manager icon in the Dock
+
 ## [0.5.0] — 2026-05-05
 
 ### Update notifications

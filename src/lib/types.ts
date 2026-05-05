@@ -30,6 +30,24 @@ export interface Profile {
   updated_at: string;
 }
 
+export interface HistoryEntry {
+  id: number;
+  host: string;
+  port: number;
+  username: string | null;
+  jump_host: string | null;
+  profile_id: number | null;
+  session_id: number | null;
+  profile_name_snapshot: string | null;
+  profile_color_snapshot: string | null;
+  session_name_snapshot: string | null;
+  connected_at: string;
+  // Joined when available
+  profile_name?: string | null;
+  profile_color?: string | null;
+  session_name?: string | null;
+}
+
 export interface Session {
   id: number;
   name: string;

@@ -41,7 +41,22 @@ function startServer() {
     const appRoot = path.join(process.resourcesPath, 'app');
     const nextBin = path.join(appRoot, 'node_modules', 'next', 'dist', 'bin', 'next');
 
-    serverProcess = spawn(process.execPath, [nextBin, 'start', '-p', String(APP_PORT), '-H', '127.0.0.1'], {
+    // On macOS, use the Renderer Helper binary (which has LSUIElement: true) so the
+    // child server process never gets its own Dock icon. Falls back to process.execPath
+    // on other platforms or if the helper isn't found.
+    let serverExecPath = process.execPath;
+    if (process.platform === 'darwin') {
+      const candidate = path.join(
+        path.dirname(process.execPath), '..', 'Frameworks',
+        'SSH Manager Helper (Renderer).app', 'Contents', 'MacOS',
+        'SSH Manager Helper (Renderer)'
+      );
+      try {
+        if (require('fs').existsSync(candidate)) serverExecPath = candidate;
+      } catch {}
+    }
+
+    serverProcess = spawn(serverExecPath, [nextBin, 'start', '-p', String(APP_PORT), '-H', '127.0.0.1'], {
       cwd: appRoot,
       env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', NODE_ENV: 'production' },
       stdio: ['ignore', 'pipe', 'pipe'],

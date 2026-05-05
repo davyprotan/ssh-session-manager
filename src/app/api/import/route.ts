@@ -3,6 +3,7 @@ import { getDb } from '@/lib/db';
 import { setPassword as kcSet, isAvailable as kcAvailable } from '@/lib/keychain';
 import { assertSafeOrigin } from '@/lib/api-guard';
 import { decryptPayload, isEncryptedEnvelope, type EncryptedEnvelope } from '@/lib/backup-crypto';
+import { looksLikeElecterm, importElecterm, type ElectermFile } from '@/lib/electerm-import';
 
 interface ImportFolder { id?: number; name: string; color?: string; sort_order?: number }
 interface ImportProfile {
@@ -23,6 +24,19 @@ export async function POST(req: NextRequest) {
   if (guard) return guard;
 
   const rawBody = await req.json() as Record<string, unknown>;
+
+  // Auto-detect Electerm bookmarks export and route to its dedicated importer.
+  if (looksLikeElecterm(rawBody)) {
+    const result = await importElecterm(rawBody as ElectermFile);
+    return NextResponse.json({
+      ...result,
+      // Map field names to the shape the UI expects
+      foldersAdded: result.foldersAdded,
+      profilesAdded: result.profilesAdded,
+      sessionsAdded: result.sessionsAdded,
+      source: 'electerm',
+    });
+  }
 
   // If this looks like an encrypted envelope, decrypt with the supplied password.
   let body: {

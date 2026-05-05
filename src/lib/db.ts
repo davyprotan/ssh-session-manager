@@ -19,7 +19,7 @@ const DB_PATH = path.join(DATA_DIR, 'sessions.db');
 const BACKUPS_DIR = path.join(DATA_DIR, 'backups');
 
 /** Current schema version. Bump only when adding/changing columns or tables. */
-const SCHEMA_VERSION = 3;
+const SCHEMA_VERSION = 4;
 
 if (!fs.existsSync(DATA_DIR)) {
   fs.mkdirSync(DATA_DIR, { recursive: true, mode: 0o700 });
@@ -117,6 +117,23 @@ function migrate(db: Database.Database) {
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
+
+    CREATE TABLE IF NOT EXISTS connection_history (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      host TEXT NOT NULL,
+      port INTEGER NOT NULL,
+      username TEXT,
+      jump_host TEXT,
+      profile_id INTEGER REFERENCES profiles(id) ON DELETE SET NULL,
+      session_id INTEGER REFERENCES sessions(id) ON DELETE SET NULL,
+      -- snapshot fields preserve display even if profile/session is later deleted
+      profile_name_snapshot TEXT,
+      profile_color_snapshot TEXT,
+      session_name_snapshot TEXT,
+      connected_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_history_connected_at ON connection_history(connected_at DESC);
   `);
 
   // Per-version migrations. Adding columns is non-destructive in SQLite.
@@ -154,4 +171,4 @@ function ensureColumn(db: Database.Database, table: string, column: string, ddl:
 
 export { PROFILE_COLORS, COLOR_HEX } from './profile-colors';
 export type { ProfileColor } from './profile-colors';
-export type { AuthType, Profile, Session, Folder } from './types';
+export type { AuthType, Profile, Session, Folder, HistoryEntry } from './types';
