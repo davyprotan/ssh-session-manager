@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { assertSafeRead } from "@/lib/api-guard";
 import { buildExportPayload } from "@/lib/backup";
 import { encryptPayload } from "@/lib/backup-crypto";
+import { audit } from "@/lib/audit";
 
 // GET → unencrypted, no secrets (safe default for browser-triggered downloads)
 export async function GET(req: NextRequest) {
@@ -9,6 +10,7 @@ export async function GET(req: NextRequest) {
   if (guard) return guard;
 
   const payload = await buildExportPayload(false);
+  audit({ event: "backup.export", details: { encrypted: false, includeSecrets: false, source: "GET" } });
   return jsonAttachment(payload, "ssh-manager-backup", false, false);
 }
 
@@ -23,16 +25,18 @@ export async function POST(req: NextRequest) {
   const password = typeof body.password === "string" && body.password.length > 0 ? body.password : undefined;
   const includeSecrets = !!body.include_secrets || !!password;
 
-  if (password && password.length < 8) {
-    return NextResponse.json({ error: "Password must be at least 8 characters" }, { status: 400 });
+  if (password && password.length < 12) {
+    return NextResponse.json({ error: "Password must be at least 12 characters" }, { status: 400 });
   }
 
   const payload = await buildExportPayload(includeSecrets);
 
   if (password) {
     const env = await encryptPayload(payload, password);
+    audit({ event: "backup.export", details: { encrypted: true, includeSecrets: true, source: "POST" } });
     return jsonAttachment(env, "ssh-manager-backup", true, true);
   }
+  audit({ event: "backup.export", details: { encrypted: false, includeSecrets, source: "POST" } });
   return jsonAttachment(payload, "ssh-manager-backup", false, includeSecrets);
 }
 

@@ -64,8 +64,8 @@ export default function SettingsDialog({ open, onClose, onChanged, onOpenSshImpo
 
   async function createBackup(encrypted: boolean) {
     if (encrypted) {
-      if (!bkPassword || bkPassword.length < 8) {
-        toast.error("Password must be at least 8 characters");
+      if (!bkPassword || bkPassword.length < 12) {
+        toast.error("Password must be at least 12 characters");
         return;
       }
       if (bkPassword !== bkPasswordConfirm) {
@@ -250,7 +250,7 @@ export default function SettingsDialog({ open, onClose, onChanged, onOpenSshImpo
                   You&apos;ll need this exact password to restore. There&apos;s no recovery — write it down.
                 </p>
                 <div className="space-y-1.5">
-                  <Label className="text-[12.5px] font-semibold" style={{ color: "var(--muted-fg)" }}>Password (8+ characters)</Label>
+                  <Label className="text-[12.5px] font-semibold" style={{ color: "var(--muted-fg)" }}>Password (12+ characters)</Label>
                   <div className="relative">
                     <Input
                       type={bkShowPwd ? "text" : "password"}
@@ -278,7 +278,7 @@ export default function SettingsDialog({ open, onClose, onChanged, onOpenSshImpo
                   <Button variant="outline" onClick={() => { setEncryptOpen(false); setBkPassword(""); setBkPasswordConfirm(""); }}>Cancel</Button>
                   <Button
                     onClick={() => createBackup(true)}
-                    disabled={creating || bkPassword.length < 8 || bkPassword !== bkPasswordConfirm}
+                    disabled={creating || bkPassword.length < 12 || bkPassword !== bkPasswordConfirm}
                     style={{ background: "var(--accent)", color: "var(--accent-foreground)", border: "none" }}
                   >
                     <ShieldCheck className="h-3.5 w-3.5 mr-1" />

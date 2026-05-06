@@ -4,6 +4,8 @@ import { setPassword as kcSet, isAvailable as kcAvailable } from '@/lib/keychain
 import { assertSafeOrigin } from '@/lib/api-guard';
 import { decryptPayload, isEncryptedEnvelope, type EncryptedEnvelope } from '@/lib/backup-crypto';
 import { looksLikeElecterm, importElecterm, type ElectermFile } from '@/lib/electerm-import';
+import { rateLimit, rateLimitReset } from '@/lib/rate-limit';
+import { audit } from '@/lib/audit';
 
 interface ImportFolder { id?: number; name: string; color?: string; sort_order?: number }
 interface ImportProfile {
@@ -47,6 +49,14 @@ export async function POST(req: NextRequest) {
   };
 
   if (isEncryptedEnvelope(rawBody)) {
+    // Throttle password attempts per process: 5 tries per 5 minutes.
+    const rl = rateLimit('import:decrypt', 5, 5 * 60_000);
+    if (!rl.allowed) {
+      return NextResponse.json(
+        { error: `Too many decrypt attempts. Try again in ${Math.ceil(rl.retryAfterMs / 1000)}s.` },
+        { status: 429, headers: { 'Retry-After': String(Math.ceil(rl.retryAfterMs / 1000)) } },
+      );
+    }
     const password = typeof (rawBody as Record<string, unknown>).password === 'string'
       ? (rawBody as Record<string, unknown>).password as string
       : undefined;
@@ -55,6 +65,7 @@ export async function POST(req: NextRequest) {
     }
     try {
       body = await decryptPayload(rawBody as EncryptedEnvelope, password) as typeof body;
+      rateLimitReset('import:decrypt');
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'decrypt failed';
       return NextResponse.json({ error: msg }, { status: 400 });
@@ -66,6 +77,20 @@ export async function POST(req: NextRequest) {
   const mode = body.mode || 'merge';
   const db = getDb();
   const useKc = await kcAvailable();
+
+  // Refuse to import secrets in plaintext: if the file contains passwords/passphrases
+  // but the OS keychain is unavailable, abort.
+  if (!useKc) {
+    const hasSecrets = (body.profiles || []).some(
+      (p) => (p.auth_type === 'password' || p.auth_type === 'key_with_passphrase') && p.password,
+    );
+    if (hasSecrets) {
+      return NextResponse.json(
+        { error: 'OS keychain is unavailable. Refusing to import profiles with passwords in plaintext.' },
+        { status: 503 },
+      );
+    }
+  }
 
   // Maps from old IDs in the import file to new IDs in this DB
   const folderIdMap = new Map<number, number>();
@@ -103,14 +128,15 @@ export async function POST(req: NextRequest) {
       if (existing) {
         newId = existing.id;
       } else {
-        const usesKeychain = p.auth_type === 'password' && p.password && useKc ? 1 : 0;
+        const usesSecret = p.auth_type === 'password' || p.auth_type === 'key_with_passphrase';
+        const usesKeychain = usesSecret && p.password ? 1 : 0;
         const r = db.prepare(`
           INSERT INTO profiles (name, username, auth_type, password, key_path, port, color, is_default,
             agent_forwarding, compression, server_alive_interval, extra_args, uses_keychain)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).run(
           p.name, p.username, p.auth_type,
-          usesKeychain ? null : (p.password || null),
+          null,
           p.key_path || null, p.port || 22, p.color || 'cyan', p.is_default || 0,
           p.agent_forwarding || 0, p.compression || 0, p.server_alive_interval || 0, p.extra_args || null,
           usesKeychain,
@@ -145,6 +171,11 @@ export async function POST(req: NextRequest) {
   for (const { id, password } of passwordWrites) {
     await kcSet(id, password);
   }
+
+  audit({
+    event: 'backup.import',
+    details: { mode, foldersAdded, profilesAdded, sessionsAdded, encrypted: isEncryptedEnvelope(rawBody) },
+  });
 
   return NextResponse.json({ foldersAdded, profilesAdded, sessionsAdded });
 }

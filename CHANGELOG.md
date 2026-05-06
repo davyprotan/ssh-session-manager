@@ -2,6 +2,53 @@
 
 All notable changes to **SSH Manager**.
 
+## [0.8.0] — 2026-05-06
+
+### Security hardening pass
+
+This release tightens defense-in-depth across credential storage, IPC, and HTTP boundaries. Behaviour-affecting changes are listed first.
+
+#### Credential storage (behaviour change)
+- **Refuse to persist passwords/passphrases in plaintext.** When the OS keychain (macOS Keychain / Windows Credential Vault / libsecret) is unavailable, the app now returns 503 instead of silently writing the secret to SQLite. This applies to:
+  - `POST /api/profiles` (create) — refuses, rolls back the row if the keychain write fails after insert
+  - `PUT /api/profiles/[id]` (update) — writes to keychain *before* the DB so a failed write can't leave `uses_keychain=1` orphans
+  - `POST /api/import` and `POST /api/backup/restore` — refuse to import secrets when the keychain is unreachable
+  - `importElecterm` — drops the secret with a per-profile warning instead of writing plaintext
+- The `password` column on `profiles` is now never written by any code path (kept for backward compatibility on read)
+
+#### Encrypted backups
+- Minimum password length raised from **8 → 12 characters** (server + UI validation, label, and disabled-state check)
+- New per-process **rate limiter for decrypt attempts**: 5 tries / 5 minutes, returns 429 with `Retry-After`. Resets on successful decrypt. Buckets keyed per backup file for restore, per process for import
+- Successful decrypts are recorded in the audit log
+
+#### Electron / packaging
+- **`hardenedRuntime` re-enabled** for macOS builds with a new `electron/build/entitlements.mac.plist` covering V8 JIT, library validation off (for `keytar` / `better-sqlite3`), dyld env vars, and outbound network
+- **Removed `shell: true`** from the dev `npm start` spawn in `electron/main.js`. Uses `npm.cmd` on Windows, `npm` elsewhere — no shell layer
+
+#### HTTP boundary
+- **Content-Security-Policy** + `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, `Permissions-Policy` shipped on every response via `next.config.ts`
+- **Origin/Referer guard** is now case-insensitive and accepts the IPv6 loopback (`http://[::1]:3005`) in addition to `127.0.0.1` / `localhost`. Substring-matching attacks (`http://attacker.example.com/?u=http://127.0.0.1:3005/`) are rejected
+- Replaced `404 "not found"` with generic `400 "invalid request"` in `/api/connect`, `/api/profiles/[id]/secret`, `/api/sessions/[id]/clone` — removes resource-existence info leak
+
+#### AppleScript
+- The SSH command is now passed to `osascript` as a positional argv (`on run argv`), not interpolated into the script source. Eliminates any concern about quote/backslash/newline escaping breaking out of the AppleScript string. Added `--` separator so leading-dash commands aren't parsed as flags
+
+#### Audit log
+- New `audit_log` table (schema v5, with pre-migration snapshot) recording `event`, `target_type`, `target_id`, `target_label`, `details` (JSON), `at`. Bounded to 5000 rows
+- Events recorded: `profile.create`, `profile.delete`, `profile.secret_revealed`, `backup.export`, `backup.import`, `backup.restore`
+- Read via `GET /api/audit?limit=200` (origin-guarded)
+
+#### Validators
+- `extra_args` now accepts valueless SSH options like `-o VisualHostKey` in addition to `-o Key=Value` pairs
+- Removed unused `hostOpt`, `EXTRA_ARG_RE`, and stale `ProfileColor` import
+
+#### Keychain
+- Replaced double type-cast on the dynamic `import('keytar')` with a runtime shape check. If the module shape ever changes the app fails closed (logs + disables) instead of crashing on first call
+
+#### Tests + CI
+- Added **Vitest** suite — 49 tests across `validators`, `backup-crypto`, `rate-limit`, and `api-guard`
+- New `npm test` and `npm run test:watch` scripts
+
 ## [0.7.2] — 2026-05-05
 
 ### Passwordless setup is now the default for new password-auth sessions

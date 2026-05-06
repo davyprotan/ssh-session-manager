@@ -3,6 +3,8 @@ import { assertSafeOrigin } from "@/lib/api-guard";
 import { readBackupFile } from "@/lib/backup";
 import { getDb } from "@/lib/db";
 import { setPassword as kcSet, isAvailable as kcAvailable } from "@/lib/keychain";
+import { rateLimit, rateLimitReset } from "@/lib/rate-limit";
+import { audit } from "@/lib/audit";
 
 interface ImportFolder { id?: number; name: string; color?: string; sort_order?: number }
 interface ImportProfile {
@@ -39,9 +41,23 @@ export async function POST(req: NextRequest) {
 
   if (!filename) return NextResponse.json({ error: "filename required" }, { status: 400 });
 
+  // Throttle decrypt attempts when a password is supplied. The bucket is keyed per
+  // backup file so attempts on different files don't compound, and is reset on success.
+  const rlKey = `restore:${filename}`;
+  if (password) {
+    const rl = rateLimit(rlKey, 5, 5 * 60_000);
+    if (!rl.allowed) {
+      return NextResponse.json(
+        { error: `Too many decrypt attempts. Try again in ${Math.ceil(rl.retryAfterMs / 1000)}s.` },
+        { status: 429, headers: { "Retry-After": String(Math.ceil(rl.retryAfterMs / 1000)) } },
+      );
+    }
+  }
+
   let payload: BackupPayload;
   try {
     payload = (await readBackupFile(filename, password)) as BackupPayload;
+    if (password) rateLimitReset(rlKey);
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : "failed to read backup";
     if (msg === "password required") return NextResponse.json({ error: msg, needs_password: true }, { status: 400 });
@@ -63,6 +79,21 @@ export async function POST(req: NextRequest) {
 
   const db = getDb();
   const useKc = await kcAvailable();
+
+  // Refuse to restore secrets in plaintext: if the backup contains passwords/passphrases
+  // but the OS keychain is unavailable, abort instead of silently storing them in SQLite.
+  if (!useKc) {
+    const hasSecrets = (payload.profiles || []).some(
+      (p) => (p.auth_type === 'password' || p.auth_type === 'key_with_passphrase') && p.password,
+    );
+    if (hasSecrets) {
+      return NextResponse.json(
+        { error: 'OS keychain is unavailable. Refusing to restore profiles with passwords in plaintext.' },
+        { status: 503 },
+      );
+    }
+  }
+
   const folderIdMap = new Map<number, number>();
   const profileIdMap = new Map<number, number>();
   let foldersAdded = 0, profilesAdded = 0, sessionsAdded = 0;
@@ -92,14 +123,15 @@ export async function POST(req: NextRequest) {
       let newId: number;
       if (existing) newId = existing.id;
       else {
-        const usesKeychain = p.auth_type === "password" && p.password && useKc ? 1 : 0;
+        const usesSecret = p.auth_type === "password" || p.auth_type === "key_with_passphrase";
+        const usesKeychain = usesSecret && p.password ? 1 : 0;
         const r = db.prepare(`
           INSERT INTO profiles (name, username, auth_type, password, key_path, port, color, is_default,
             agent_forwarding, compression, server_alive_interval, extra_args, uses_keychain)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).run(
           p.name, p.username, p.auth_type,
-          usesKeychain ? null : (p.password || null),
+          null,
           p.key_path || null, p.port || 22, p.color || "cyan", p.is_default || 0,
           p.agent_forwarding || 0, p.compression || 0, p.server_alive_interval || 0, p.extra_args || null,
           usesKeychain,
@@ -128,6 +160,13 @@ export async function POST(req: NextRequest) {
   })();
 
   for (const { id, password: pwd } of passwordWrites) await kcSet(id, pwd);
+
+  audit({
+    event: "backup.restore",
+    target_type: "backup",
+    target_label: filename,
+    details: { mode, foldersAdded, profilesAdded, sessionsAdded, encrypted: !!password },
+  });
 
   return NextResponse.json({ foldersAdded, profilesAdded, sessionsAdded });
 }

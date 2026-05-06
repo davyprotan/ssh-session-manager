@@ -1,6 +1,6 @@
 {
   "name": "ssh-session-manager",
-  "version": "0.7.2",
+  "version": "0.8.0",
   "private": true,
   "main": "electron/main.js",
   "description": "Local SSH session and credential manager — Next.js + Electron, dark cyan UI",
@@ -19,6 +19,8 @@
     "build": "next build --webpack",
     "start": "next start -p 3005 -H 127.0.0.1",
     "lint": "eslint",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "electron": "electron .",
     "electron:dev": "NEXT_DISABLE_TURBOPACK=1 next build && electron .",
     "electron:build": "next build && electron-builder",
@@ -52,7 +54,8 @@
     "eslint": "^9",
     "eslint-config-next": "16.2.4",
     "tailwindcss": "^4",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^4.1.5"
   },
   "build": {
     "appId": "com.davytan.sshmanager",
@@ -115,9 +118,11 @@
         }
       ],
       "icon": "electron/build/icon.icns",
-      "hardenedRuntime": false,
+      "hardenedRuntime": true,
       "gatekeeperAssess": false,
-      "identity": null
+      "identity": null,
+      "entitlements": "electron/build/entitlements.mac.plist",
+      "entitlementsInherit": "electron/build/entitlements.mac.plist"
     },
     "win": {
       "target": "nsis",

@@ -23,7 +23,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
   const db = getDb();
   const original = db.prepare('SELECT * FROM sessions WHERE id = ?').get(idNum) as SessionRow | undefined;
-  if (!original) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+  if (!original) return NextResponse.json({ error: 'invalid request' }, { status: 400 });
 
   // Strip any existing " (copy)" or " (copy N)" suffix to get the base name
   const baseName = original.name.replace(/\s*\(copy(?:\s\d+)?\)\s*$/, '');
