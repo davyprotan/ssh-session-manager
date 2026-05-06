@@ -4,8 +4,8 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Plus, Search, Server, KeyRound, Terminal, Wifi, Zap, Settings, FolderClosed, ArrowUpDown, Bookmark, History as HistoryIcon, Trash2 } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select";
+import { Plus, Search, KeyRound, Terminal, Wifi, Zap, Settings, FolderClosed, ArrowUpDown, Bookmark, History as HistoryIcon, Trash2 } from "lucide-react";
 import ThemePicker from "@/components/ThemePicker";
 import UpdateBanner from "@/components/UpdateBanner";
 import SessionCard from "@/components/SessionCard";
@@ -20,7 +20,6 @@ import SetupPasswordlessDialog from "@/components/SetupPasswordlessDialog";
 import { toast } from "sonner";
 import type { Session, Profile, Folder, HistoryEntry } from "@/lib/types";
 import { COLOR_HEX, type ProfileColor } from "@/lib/profile-colors";
-import { cn } from "@/lib/utils";
 
 type Tab = "saved" | "history" | "profiles";
 type SortBy = "name" | "last_connected" | "created";

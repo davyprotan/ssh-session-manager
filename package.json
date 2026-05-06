@@ -1,6 +1,6 @@
 {
   "name": "ssh-session-manager",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "private": true,
   "main": "electron/main.js",
   "description": "Local SSH session and credential manager — Next.js + Electron, dark cyan UI",
@@ -120,7 +120,7 @@
       "icon": "electron/build/icon.icns",
       "hardenedRuntime": true,
       "gatekeeperAssess": false,
-      "identity": null,
+      "identity": "-",
       "entitlements": "electron/build/entitlements.mac.plist",
       "entitlementsInherit": "electron/build/entitlements.mac.plist"
     },

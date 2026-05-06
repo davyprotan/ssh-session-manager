@@ -1,7 +1,6 @@
 "use client";
 
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Terminal, Key, Lock, MoreVertical, Pencil, Trash2, Copy, Clock, UserRound, ShieldCheck, Files, Network, FolderClosed, KeyRound } from "lucide-react";
 import { COLOR_HEX, type ProfileColor } from "@/lib/profile-colors";

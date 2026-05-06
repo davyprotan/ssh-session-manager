@@ -2,6 +2,15 @@
 
 All notable changes to **SSH Manager**.
 
+## [0.8.1] — 2026-05-06
+
+### v0.8.0 follow-ups
+
+- **One-shot plaintext-to-keychain migration.** On startup, any leftover rows in `profiles.password` are moved into the OS keychain and the column is nulled. Idempotent — re-runs each launch until the user's keychain is reachable. Each migrated row is recorded in the audit log as `profile.password_migrated`. Verified end-to-end: legacy plaintext row → server start → row reads `uses_keychain=1`, password fetchable from `security find-generic-password`.
+- **Recent activity panel** in `Settings → Recent activity` — collapsible view of the last 50 audit events (profile create/delete, secret reveals, backup operations, plaintext migrations). Reads from the new `GET /api/audit` endpoint
+- **macOS hardened runtime is now actually applied.** The v0.8.0 config set `hardenedRuntime: true` but kept `identity: null`, which causes electron-builder to skip signing entirely — silently dropping the entitlements. Switched to ad-hoc signing (`identity: "-"`) so the entitlements file lands on the binary. Verified: `codesign -d` shows `flags=0x10002(adhoc,runtime)` and the full entitlements plist on both the main app and renderer helpers; the packaged app launches and Next.js + native modules (better-sqlite3, keytar) load successfully
+- **Pre-existing lint cleanup** — `react-hooks/set-state-in-effect` downgraded from error to warn (it false-positives on valid dialog-reset patterns); `electron/` excluded from lint (CommonJS by design); ThemeProvider's localStorage read deferred into a microtask; unused imports removed (`SelectValue`, `Server`, `cn`, `Button` in SessionCard, `setIncludeSecrets`)
+
 ## [0.8.0] — 2026-05-06
 
 ### Security hardening pass
