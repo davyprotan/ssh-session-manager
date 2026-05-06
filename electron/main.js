@@ -62,13 +62,17 @@ function startServer() {
       stdio: ['ignore', 'pipe', 'pipe'],
     });
   } else {
-    // Dev: spawn `npm start` from the project root
+    // Dev: spawn `npm start` from the project root.
+    // We avoid `shell: true` (which would route through /bin/sh and add an injection
+    // surface for any future env-var or arg passed in). On Windows, `npm` is a .cmd
+    // batch file, which spawn() can only resolve when given the full filename — so we
+    // use `npm.cmd` there directly instead of relying on the shell.
     const projectRoot = path.join(__dirname, '..');
-    serverProcess = spawn('npm', ['start'], {
+    const npmBin = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+    serverProcess = spawn(npmBin, ['start'], {
       cwd: projectRoot,
       env: { ...process.env, NODE_ENV: 'production' },
       stdio: ['ignore', 'pipe', 'pipe'],
-      shell: true,
     });
   }
 

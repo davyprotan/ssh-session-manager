@@ -20,32 +20,35 @@ export default function UpdateBanner() {
   const [info, setInfo] = useState<UpdateInfo | null>(null);
 
   useEffect(() => {
-    // Throttle: only hit GitHub once per 24h
+    // Throttle: only hit GitHub once per 24h. Both branches resolve via a Promise
+    // callback so the eventual setInfo() is never called synchronously from the
+    // effect body — this avoids cascading-render lint warnings.
+    let cancelled = false;
+
     let lastCheck = 0;
     try { lastCheck = parseInt(localStorage.getItem(LAST_CHECK_KEY) || "0"); } catch {}
-
     const since = Date.now() - lastCheck;
     const stale = since > CHECK_INTERVAL_MS || isNaN(lastCheck);
 
-    if (!stale) {
-      // Use cached result if we have one
-      try {
-        const cached = localStorage.getItem("ssh-manager-update-cache");
-        if (cached) setInfo(JSON.parse(cached));
-      } catch {}
-      return;
-    }
+    const work: Promise<UpdateInfo | null> = stale
+      ? fetch("/api/update-check")
+          .then(r => r.json())
+          .then((data: UpdateInfo) => {
+            try {
+              localStorage.setItem(LAST_CHECK_KEY, String(Date.now()));
+              localStorage.setItem("ssh-manager-update-cache", JSON.stringify(data));
+            } catch {}
+            return data;
+          })
+      : Promise.resolve().then<UpdateInfo | null>(() => {
+          try {
+            const cached = localStorage.getItem("ssh-manager-update-cache");
+            return cached ? (JSON.parse(cached) as UpdateInfo) : null;
+          } catch { return null; }
+        });
 
-    fetch("/api/update-check")
-      .then(r => r.json())
-      .then((data: UpdateInfo) => {
-        setInfo(data);
-        try {
-          localStorage.setItem(LAST_CHECK_KEY, String(Date.now()));
-          localStorage.setItem("ssh-manager-update-cache", JSON.stringify(data));
-        } catch {}
-      })
-      .catch(() => {/* silent */});
+    work.then((data) => { if (!cancelled && data) setInfo(data); }).catch(() => {});
+    return () => { cancelled = true; };
   }, []);
 
   if (!info?.available || !info.latest) return null;

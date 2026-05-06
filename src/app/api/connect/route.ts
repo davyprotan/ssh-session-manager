@@ -24,11 +24,6 @@ interface SessionRow {
   profile_id?: number;
 }
 
-/** Escape an arbitrary string for safe inclusion in an AppleScript double-quoted string. */
-function escapeForAppleScriptString(s: string): string {
-  return s.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\n/g, "\\n").replace(/\r/g, "\\r");
-}
-
 export async function POST(req: NextRequest) {
   const guard = assertSafeOrigin(req);
   if (guard) return guard;
@@ -52,7 +47,7 @@ export async function POST(req: NextRequest) {
 
   if (typeof body.session_id === 'number') {
     const session = db.prepare(`SELECT * FROM sessions WHERE id = ?`).get(body.session_id) as SessionRow | undefined;
-    if (!session) return NextResponse.json({ error: 'Session not found' }, { status: 404 });
+    if (!session) return NextResponse.json({ error: 'invalid request' }, { status: 400 });
 
     host = session.host;
     port = session.port || 22;
@@ -75,7 +70,7 @@ export async function POST(req: NextRequest) {
     db.prepare(`UPDATE sessions SET last_connected_at = datetime('now') WHERE id = ?`).run(body.session_id);
   } else if (typeof body.host === 'string' && typeof body.profile_id === 'number') {
     const profile = db.prepare(`SELECT * FROM profiles WHERE id = ?`).get(body.profile_id) as ProfileRow | undefined;
-    if (!profile) return NextResponse.json({ error: 'Profile not found' }, { status: 404 });
+    if (!profile) return NextResponse.json({ error: 'invalid request' }, { status: 400 });
 
     host = String(body.host);
     const requestedPort = Number(body.port) || profile.port || 22;
@@ -112,35 +107,40 @@ export async function POST(req: NextRequest) {
   const sq = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
   const sshCmd = `ssh ${result.argv.map(sq).join(' ')}`;
 
+  // The SSH command is passed to AppleScript as a positional argument (osascript argv),
+  // not interpolated into the script source. This means the command bytes can contain
+  // anything — quotes, backslashes, newlines, AppleScript syntax — without being able
+  // to alter the script structure. AppleScript receives it as an opaque string.
   // For iTerm2 we open a fresh window and TYPE the command into the user's normal login
   // shell. When ssh exits the user is back at their shell prompt and can read the error
-  // until they close the window manually. This avoids iTerm2's "command session ended"
-  // behaviour where the window closes faster than the eye can read.
+  // until they close the window manually.
   // For Terminal.app, `do script` already keeps the window open after the command exits.
-  const escapedForIterm = escapeForAppleScriptString(sshCmd);
-  const escapedForTerminal = escapeForAppleScriptString(sshCmd);
   const appleScript = `
-    tell application "System Events"
-      set appList to name of every application process
-    end tell
-    if appList contains "iTerm2" or appList contains "iTerm" then
-      tell application "iTerm"
-        set newWindow to (create window with default profile)
-        tell current session of newWindow
-          write text "${escapedForIterm}"
+    on run argv
+      set theCmd to item 1 of argv
+      tell application "System Events"
+        set appList to name of every application process
+      end tell
+      if appList contains "iTerm2" or appList contains "iTerm" then
+        tell application "iTerm"
+          set newWindow to (create window with default profile)
+          tell current session of newWindow
+            write text theCmd
+          end tell
+          activate
         end tell
-        activate
-      end tell
-    else
-      tell application "Terminal"
-        do script "${escapedForTerminal}"
-        activate
-      end tell
-    end if
+      else
+        tell application "Terminal"
+          do script theCmd
+          activate
+        end tell
+      end if
+    end run
   `;
 
-  // Use execFile (no shell) so the AppleScript content can never break out into a shell.
-  execFile('osascript', ['-e', appleScript], (err) => {
+  // Use execFile (no shell). The `--` separator prevents any leading dash in sshCmd
+  // from being parsed as an osascript flag.
+  execFile('osascript', ['-e', appleScript, '--', sshCmd], (err) => {
     if (err) console.error('AppleScript error:', err);
   });
 

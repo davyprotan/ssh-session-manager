@@ -6,6 +6,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
 import { getPassword as kcGet } from '@/lib/keychain';
 import { assertSafeOrigin } from '@/lib/api-guard';
+import { audit } from '@/lib/audit';
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const guard = assertSafeOrigin(req);
@@ -21,7 +22,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   const row = db.prepare('SELECT password, uses_keychain FROM profiles WHERE id = ?').get(idNum) as
     | { password: string | null; uses_keychain: number }
     | undefined;
-  if (!row) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+  if (!row) return NextResponse.json({ error: 'invalid request' }, { status: 400 });
 
   let secret: string | null = null;
   if (row.uses_keychain) {
@@ -29,6 +30,10 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   } else {
     secret = row.password;
   }
+
+  // Record reveals — useful if a password ever ends up in a place it shouldn't.
+  const meta = db.prepare('SELECT name FROM profiles WHERE id = ?').get(idNum) as { name: string } | undefined;
+  audit({ event: 'profile.secret_revealed', target_type: 'profile', target_id: idNum, target_label: meta?.name ?? null });
 
   return NextResponse.json({ password: secret });
 }

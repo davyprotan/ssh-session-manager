@@ -16,8 +16,8 @@ export async function POST(req: NextRequest) {
   if (!password && includeSecrets) {
     // Allowed but warn — caller is responsible.
   }
-  if (password && password.length < 8) {
-    return NextResponse.json({ error: "Password must be at least 8 characters" }, { status: 400 });
+  if (password && password.length < 12) {
+    return NextResponse.json({ error: "Password must be at least 12 characters" }, { status: 400 });
   }
 
   try {

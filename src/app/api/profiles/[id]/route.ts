@@ -3,6 +3,7 @@ import { getDb } from '@/lib/db';
 import { setPassword as kcSet, deletePassword as kcDel, isAvailable as kcAvailable } from '@/lib/keychain';
 import { assertSafeOrigin } from '@/lib/api-guard';
 import { parseProfile, ValidationError } from '@/lib/validators';
+import { audit } from '@/lib/audit';
 
 const PUBLIC_COLS = `
   id, name, username, auth_type, key_path, port, color, is_default,
@@ -30,7 +31,28 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   const db = getDb();
   const hasSecret = !!input.password;
   const usesSecret = input.auth_type === 'password' || input.auth_type === 'key_with_passphrase';
-  const useKeychain = usesSecret && hasSecret && (await kcAvailable());
+
+  // Refuse to store secrets in plaintext — require the OS keychain.
+  if (usesSecret && hasSecret && !(await kcAvailable())) {
+    return NextResponse.json(
+      { error: 'OS keychain is unavailable. Refusing to store the password in plaintext. Please ensure Keychain (macOS) / Credential Vault (Windows) / libsecret (Linux) is reachable and try again.' },
+      { status: 503 },
+    );
+  }
+  const useKeychain = usesSecret && hasSecret;
+
+  // If a new secret was provided, write it to the keychain BEFORE updating the
+  // database, so a failing keychain write doesn't leave us with a row that
+  // claims `uses_keychain=1` but has no entry to read.
+  if (useKeychain && input.password) {
+    const ok = await kcSet(idNum, input.password);
+    if (!ok) {
+      return NextResponse.json(
+        { error: 'Keychain write failed. The profile was not updated.' },
+        { status: 503 },
+      );
+    }
+  }
 
   db.transaction(() => {
     if (input.is_default) db.prepare('UPDATE profiles SET is_default = 0 WHERE id != ?').run(idNum);
@@ -42,7 +64,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       WHERE id=?
     `).run(
       input.name, input.username, input.auth_type,
-      useKeychain ? null : (input.password || null),
+      null,
       input.key_path, input.port, input.color, input.is_default,
       input.agent_forwarding, input.compression, input.server_alive_interval, input.extra_args,
       useKeychain ? 1 : 0,
@@ -50,9 +72,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     );
   })();
 
-  if (useKeychain && input.password) {
-    await kcSet(idNum, input.password);
-  } else if (!usesSecret) {
+  if (!usesSecret) {
     // auth_type changed to plain SSH key — clean up any old keychain entry
     await kcDel(idNum);
   }
@@ -70,7 +90,9 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
   if (!Number.isInteger(idNum) || idNum <= 0) return NextResponse.json({ error: 'invalid id' }, { status: 400 });
 
   const db = getDb();
+  const existing = db.prepare('SELECT name FROM profiles WHERE id = ?').get(idNum) as { name: string } | undefined;
   db.prepare('DELETE FROM profiles WHERE id = ?').run(idNum);
   await kcDel(idNum);
+  if (existing) audit({ event: 'profile.delete', target_type: 'profile', target_id: idNum, target_label: existing.name });
   return NextResponse.json({ ok: true });
 }

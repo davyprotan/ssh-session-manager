@@ -7,12 +7,29 @@
 
 import { NextRequest, NextResponse } from "next/server";
 
+// All loopback origins we accept. Origins are compared lowercased so headers
+// from clients that uppercase the scheme/host still match.
 const ALLOWED_ORIGINS = new Set([
   "http://127.0.0.1:3005",
   "http://localhost:3005",
+  "http://[::1]:3005",
 ]);
 
 const TOKEN = process.env.API_TOKEN || "";
+
+function originMatches(value: string | null): boolean {
+  if (!value) return false;
+  return ALLOWED_ORIGINS.has(value.toLowerCase());
+}
+
+function refererMatches(value: string | null): boolean {
+  if (!value) return false;
+  const v = value.toLowerCase();
+  for (const o of ALLOWED_ORIGINS) {
+    if (v === o || v === o + "/" || v.startsWith(o + "/")) return true;
+  }
+  return false;
+}
 
 export function assertSafeOrigin(req: NextRequest): NextResponse | null {
   // 1) Origin/Referer check — blocks any web page from another origin POSTing here
@@ -24,9 +41,7 @@ export function assertSafeOrigin(req: NextRequest): NextResponse | null {
   const isMutation = method === "POST" || method === "PUT" || method === "DELETE" || method === "PATCH";
 
   if (isMutation) {
-    const validOrigin = origin && ALLOWED_ORIGINS.has(origin);
-    const validReferer = referer && Array.from(ALLOWED_ORIGINS).some(o => referer.startsWith(o + "/") || referer === o + "/" || referer === o);
-    if (!validOrigin && !validReferer) {
+    if (!originMatches(origin) && !refererMatches(referer)) {
       return NextResponse.json({ error: "Forbidden: bad origin" }, { status: 403 });
     }
   }
@@ -46,9 +61,7 @@ export function assertSafeOrigin(req: NextRequest): NextResponse | null {
 export function assertSafeRead(req: NextRequest): NextResponse | null {
   const origin = req.headers.get("origin");
   const referer = req.headers.get("referer");
-  const validOrigin = origin && ALLOWED_ORIGINS.has(origin);
-  const validReferer = referer && Array.from(ALLOWED_ORIGINS).some(o => referer.startsWith(o + "/") || referer === o);
-  if (!validOrigin && !validReferer) {
+  if (!originMatches(origin) && !refererMatches(referer)) {
     return NextResponse.json({ error: "Forbidden: bad origin" }, { status: 403 });
   }
   if (TOKEN) {

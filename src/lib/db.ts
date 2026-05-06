@@ -2,7 +2,6 @@ import Database from 'better-sqlite3';
 import path from 'path';
 import os from 'os';
 import fs from 'fs';
-import type { ProfileColor } from './profile-colors';
 
 // ─────────────────────────────────────────────────────────────
 // CRITICAL: these paths MUST NOT change between versions.
@@ -19,7 +18,7 @@ const DB_PATH = path.join(DATA_DIR, 'sessions.db');
 const BACKUPS_DIR = path.join(DATA_DIR, 'backups');
 
 /** Current schema version. Bump only when adding/changing columns or tables. */
-const SCHEMA_VERSION = 4;
+const SCHEMA_VERSION = 5;
 
 if (!fs.existsSync(DATA_DIR)) {
   fs.mkdirSync(DATA_DIR, { recursive: true, mode: 0o700 });
@@ -134,6 +133,18 @@ function migrate(db: Database.Database) {
     );
 
     CREATE INDEX IF NOT EXISTS idx_history_connected_at ON connection_history(connected_at DESC);
+
+    CREATE TABLE IF NOT EXISTS audit_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      event TEXT NOT NULL,           -- e.g. 'profile.delete', 'backup.export', 'restore.run'
+      target_type TEXT,              -- 'profile' | 'session' | 'folder' | 'backup' | null
+      target_id INTEGER,             -- DB id or null for non-row events
+      target_label TEXT,             -- human-readable name at time of event (snapshot)
+      details TEXT,                  -- short free-form JSON for context
+      at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_audit_at ON audit_log(at DESC);
   `);
 
   // Per-version migrations. Adding columns is non-destructive in SQLite.

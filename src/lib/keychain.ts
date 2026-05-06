@@ -10,13 +10,34 @@ interface KeytarModule {
 let _keytar: KeytarModule | null = null;
 let _available = true;
 
+function isKeytarShape(x: unknown): x is KeytarModule {
+  if (!x || typeof x !== 'object') return false;
+  const r = x as Record<string, unknown>;
+  return (
+    typeof r.setPassword === 'function' &&
+    typeof r.getPassword === 'function' &&
+    typeof r.deletePassword === 'function'
+  );
+}
+
 async function getKeytar(): Promise<KeytarModule | null> {
   if (_keytar) return _keytar;
   if (!_available) return null;
   try {
-    // Dynamic import — keytar is a native module
-    const mod = await import('keytar');
-    _keytar = (mod as unknown as { default?: KeytarModule }).default || (mod as unknown as KeytarModule);
+    // Dynamic import — keytar is a native module. The CJS shim exposes the API
+    // either as the module itself or under .default depending on the bundler;
+    // probe both shapes at runtime instead of trusting a type assertion.
+    const mod = (await import('keytar')) as Record<string, unknown>;
+    const candidate =
+      isKeytarShape(mod.default) ? (mod.default as KeytarModule) :
+      isKeytarShape(mod) ? (mod as unknown as KeytarModule) :
+      null;
+    if (!candidate) {
+      console.warn('Keychain module loaded but has unexpected shape');
+      _available = false;
+      return null;
+    }
+    _keytar = candidate;
     return _keytar;
   } catch (e) {
     console.warn('Keychain not available:', e instanceof Error ? e.message : String(e));

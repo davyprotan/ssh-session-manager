@@ -61,11 +61,6 @@ function host(v: unknown): string {
   if (!HOST_RE.test(h)) throw new ValidationError('invalid host');
   return h;
 }
-function hostOpt(v: unknown): string | null {
-  if (v == null || v === '') return null;
-  return host(v);
-}
-
 // Jump host — user@host[:port]
 const JUMP_RE = /^(?:[a-zA-Z0-9._-]{1,64}@)?[a-zA-Z0-9._:%\-]+(?::\d{1,5})?$/;
 function jumpHost(v: unknown): string | null {
@@ -95,7 +90,7 @@ function extraArgs(v: unknown): string | null {
   if (v == null || v === '') return null;
   const t = s(v, 1024).trim();
   if (!t) return null;
-  if (!/^(\s*-o\s+[A-Za-z0-9]+=[A-Za-z0-9._\-/]+)+\s*$/.test(t)) {
+  if (!/^(\s*-o\s+[A-Za-z0-9]+(?:=[A-Za-z0-9._\-/]*)?)+\s*$/.test(t)) {
     throw new ValidationError('extra_args must be one or more "-o Key=Value" pairs');
   }
   return t;

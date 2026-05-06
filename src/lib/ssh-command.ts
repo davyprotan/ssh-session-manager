@@ -4,7 +4,6 @@
 const HOST_RE = /^[a-zA-Z0-9._:%\-]+$/; // hostnames, IPv4, IPv6 (with %scope), basic punct
 const USER_RE = /^[a-zA-Z0-9._-]{1,64}$/;
 const KEYPATH_RE = /^[a-zA-Z0-9._/~\-+ ]+$/; // no metacharacters; spaces allowed in path
-const EXTRA_ARG_RE = /^-o\s+[A-Za-z0-9]+=[A-Za-z0-9._\-/]+$/; // only `-o Key=Value` pairs
 
 export interface SshArgsInput {
   host: string;
@@ -32,7 +31,7 @@ export interface SshArgsError {
 function isValidExtraArgs(s: string): boolean {
   if (!s.trim()) return true;
   // Only `-o Key=Value` pairs separated by single spaces, repeated
-  return /^(\s*-o\s+[A-Za-z0-9]+=[A-Za-z0-9._\-/]+)+\s*$/.test(s);
+  return /^(\s*-o\s+[A-Za-z0-9]+(?:=[A-Za-z0-9._\-/]*)?)+\s*$/.test(s);
 }
 
 export function buildSshArgs(input: SshArgsInput): SshArgsResult | SshArgsError {

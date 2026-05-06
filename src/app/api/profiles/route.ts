@@ -3,6 +3,7 @@ import { getDb } from '@/lib/db';
 import { setPassword as kcSet, isAvailable as kcAvailable } from '@/lib/keychain';
 import { assertSafeOrigin } from '@/lib/api-guard';
 import { parseProfile, ValidationError } from '@/lib/validators';
+import { audit } from '@/lib/audit';
 
 const PUBLIC_COLS = `
   id, name, username, auth_type, key_path, port, color, is_default,
@@ -40,7 +41,15 @@ export async function POST(req: NextRequest) {
   // Use keychain for any auth type that has a secret to store (password OR passphrase)
   const hasSecret = !!input.password;
   const usesSecret = input.auth_type === 'password' || input.auth_type === 'key_with_passphrase';
-  const useKeychain = usesSecret && hasSecret && (await kcAvailable());
+
+  // Refuse to store secrets in plaintext — require the OS keychain.
+  if (usesSecret && hasSecret && !(await kcAvailable())) {
+    return NextResponse.json(
+      { error: 'OS keychain is unavailable. Refusing to store the password in plaintext. Please ensure Keychain (macOS) / Credential Vault (Windows) / libsecret (Linux) is reachable and try again.' },
+      { status: 503 },
+    );
+  }
+  const useKeychain = usesSecret && hasSecret;
 
   try {
     const id = db.transaction(() => {
@@ -52,7 +61,7 @@ export async function POST(req: NextRequest) {
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         input.name, input.username, input.auth_type,
-        useKeychain ? null : (input.password || null),
+        null,
         input.key_path, input.port, input.color, input.is_default,
         input.agent_forwarding, input.compression, input.server_alive_interval, input.extra_args,
         useKeychain ? 1 : 0,
@@ -60,9 +69,26 @@ export async function POST(req: NextRequest) {
       return Number(result.lastInsertRowid);
     })();
 
-    if (useKeychain && input.password) await kcSet(id, input.password);
+    if (useKeychain && input.password) {
+      const ok = await kcSet(id, input.password);
+      if (!ok) {
+        // Keychain became unavailable between the precheck and the write — roll back.
+        db.prepare('DELETE FROM profiles WHERE id = ?').run(id);
+        return NextResponse.json(
+          { error: 'Keychain write failed. The profile was not created.' },
+          { status: 503 },
+        );
+      }
+    }
 
     const profile = db.prepare(`SELECT ${PUBLIC_COLS} FROM profiles WHERE id = ?`).get(id);
+    audit({
+      event: 'profile.create',
+      target_type: 'profile',
+      target_id: id,
+      target_label: input.name,
+      details: { auth_type: input.auth_type, uses_keychain: useKeychain ? 1 : 0 },
+    });
     return NextResponse.json(profile, { status: 201 });
   } catch (e: unknown) {
     if (e instanceof Error && e.message.includes('UNIQUE')) {

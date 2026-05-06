@@ -130,12 +130,18 @@ export async function importElecterm(data: ElectermFile): Promise<ImportResult> 
 
     const color = opts.color && /^[a-z]+$/.test(opts.color) ? opts.color : PALETTE[paletteCursor++ % PALETTE.length];
     const passwordToStore = opts.password || opts.passphrase || null;
+    // If keychain is unavailable we drop the secret rather than persisting it in plaintext.
+    // The user is warned (see warnings[]); they can edit the profile and add the secret once
+    // keychain is reachable.
     const usesKeychain = passwordToStore && useKc ? 1 : 0;
+    if (passwordToStore && !useKc) {
+      warnings.push(`Imported "${name}" without its stored password — OS keychain unavailable and we refuse to store passwords in plaintext.`);
+    }
 
     const r = db.prepare(`
       INSERT INTO profiles (name, username, auth_type, password, key_path, port, color, uses_keychain)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(name, opts.username, opts.authType, usesKeychain ? null : passwordToStore, opts.keyPath, opts.port, color, usesKeychain);
+    `).run(name, opts.username, opts.authType, null, opts.keyPath, opts.port, color, usesKeychain);
     const id = Number(r.lastInsertRowid);
     profileByKey.set(key, id);
     if (usesKeychain && passwordToStore) passwordWrites.push({ id, password: passwordToStore });
