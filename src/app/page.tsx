@@ -417,7 +417,15 @@ export default function Home() {
       <SessionDialog
         open={sessionDialogOpen}
         onClose={() => setSessionDialogOpen(false)}
-        onSave={fetchSessions}
+        onSave={(saved, isNew) => {
+          fetchSessions();
+          fetchHistory();
+          // Auto-offer passwordless setup for any new password-auth session
+          if (isNew && saved && saved.profile_auth_type === "password") {
+            // Small delay so the SessionDialog finishes its close animation first
+            setTimeout(() => setPasswordlessTarget(saved), 200);
+          }
+        }}
         session={editingSession}
         profiles={profiles}
         folders={folders}
@@ -435,7 +443,19 @@ export default function Home() {
         onClose={() => setQuickConnectOpen(false)}
         profiles={profiles}
         onProfilesChanged={() => { fetchProfiles(); fetchSessions(); }}
-        onSessionSaved={fetchSessions}
+        onSessionSaved={(saved) => {
+          fetchSessions();
+          // If the user saved a password-auth session, auto-prompt for passwordless setup
+          if (saved && saved.profile_auth_type === "password") {
+            setTimeout(() => {
+              // Re-fetch then resolve the freshly saved session for the dialog
+              fetch(`/api/sessions`).then(r => r.json()).then((rows: Session[]) => {
+                const fresh = rows.find(s => s.id === saved.id);
+                if (fresh) setPasswordlessTarget(fresh);
+              });
+            }, 200);
+          }
+        }}
       />
       <SettingsDialog
         open={settingsOpen}

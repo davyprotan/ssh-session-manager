@@ -2,6 +2,14 @@
 
 All notable changes to **SSH Manager**.
 
+## [0.7.2] — 2026-05-05
+
+### Passwordless setup is now the default for new password-auth sessions
+- Saving a new session with a password-auth profile **automatically opens** the "Set up passwordless login" dialog
+- Same in **Quick Connect** when "Save as a session" is on with a password profile
+- The dialog has a "**Skip — keep using password**" button so it's never forced; you can always opt out
+- Editing an existing session no longer auto-prompts (the menu item is still there for those)
+
 ## [0.7.1] — 2026-05-05
 
 ### Passwordless setup is now discoverable everywhere

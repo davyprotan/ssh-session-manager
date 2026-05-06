@@ -171,6 +171,10 @@ export default function SetupPasswordlessDialog({ open, onClose, session, target
 
         {step === "intro" && (
           <div className="space-y-3 py-1">
+            <p className="text-[12.5px] leading-relaxed" style={{ color: "var(--muted-fg)" }}>
+              Strongly recommended — typing your password every time is a hassle and gradually leaks it through shoulder-surfing & shell history.
+              This takes ~30 seconds and you only do it once per host.
+            </p>
             <div className="rounded-lg p-3" style={{ background: "color-mix(in srgb, var(--fg) 4%, transparent)", border: "1px solid var(--border)" }}>
               <p className="text-[12.5px] font-mono" style={{ color: "var(--accent)" }}>
                 {username}@{host}{port !== 22 ? `:${port}` : ""}
@@ -214,7 +218,7 @@ export default function SetupPasswordlessDialog({ open, onClose, session, target
         <DialogFooter className="gap-2">
           {step === "intro" && (
             <>
-              <Button variant="outline" onClick={onClose}>Cancel</Button>
+              <Button variant="ghost" onClick={onClose} style={{ color: "var(--muted-fg)" }}>Skip — keep using password</Button>
               <Button
                 onClick={setUp}
                 disabled={generating}

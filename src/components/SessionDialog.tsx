@@ -17,7 +17,9 @@ import { COLOR_HEX, type ProfileColor } from "@/lib/profile-colors";
 interface Props {
   open: boolean;
   onClose: () => void;
-  onSave: () => void;
+  // Called after save with the saved session record. The parent can use this
+  // to e.g. auto-open the passwordless setup for new password-auth sessions.
+  onSave: (saved?: Session, isNew?: boolean) => void;
   session?: Session | null;
   profiles: Profile[];
   folders: Folder[];
@@ -116,7 +118,8 @@ export default function SessionDialog({ open, onClose, onSave, session, profiles
     });
     setSaving(false);
     if (!res.ok) { setError("Failed to save session."); return; }
-    onSave();
+    const saved: Session | undefined = await res.json().catch(() => undefined);
+    onSave(saved, !session);
     onClose();
   }
 

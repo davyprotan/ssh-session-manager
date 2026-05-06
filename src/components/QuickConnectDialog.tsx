@@ -17,7 +17,7 @@ interface Props {
   onClose: () => void;
   profiles: Profile[];
   onProfilesChanged: () => void;
-  onSessionSaved?: () => void;
+  onSessionSaved?: (saved?: { id: number; name: string; host: string; profile_auth_type?: string | null }) => void;
 }
 
 export default function QuickConnectDialog({ open, onClose, profiles, onProfilesChanged, onSessionSaved }: Props) {
@@ -69,7 +69,7 @@ export default function QuickConnectDialog({ open, onClose, profiles, onProfiles
         const saved = await saveRes.json();
         savedSessionId = saved.id;
         toast.success(`Saved session "${finalName}"`);
-        onSessionSaved?.();
+        onSessionSaved?.(saved);
       } else {
         const err = await saveRes.json().catch(() => ({}));
         toast.error("Failed to save session", { description: err.error });
