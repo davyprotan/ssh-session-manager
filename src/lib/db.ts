@@ -28,6 +28,7 @@ if (!fs.existsSync(BACKUPS_DIR)) {
 }
 
 let _db: Database.Database | null = null;
+let _deferredKicked = false;
 
 export function getDb(): Database.Database {
   if (_db) return _db;
@@ -35,6 +36,17 @@ export function getDb(): Database.Database {
   _db.pragma('journal_mode = WAL');
   _db.pragma('foreign_keys = ON');
   migrate(_db);
+  // Kick off the async post-migration that moves any leftover plaintext
+  // passwords into the OS keychain. Fire-and-forget — if it fails the rows
+  // remain as-is and we'll try again next startup.
+  if (!_deferredKicked) {
+    _deferredKicked = true;
+    queueMicrotask(() => {
+      void migratePlaintextPasswordsToKeychain().catch((e) =>
+        console.warn('plaintext→keychain migration failed:', e),
+      );
+    });
+  }
   return _db;
 }
 
@@ -177,6 +189,52 @@ function ensureColumn(db: Database.Database, table: string, column: string, ddl:
   const cols = db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
   if (!cols.some(c => c.name === column)) {
     db.exec(`ALTER TABLE ${table} ADD COLUMN ${ddl}`);
+  }
+}
+
+/**
+ * Move any rows that still hold a plaintext password into the OS keychain.
+ * Idempotent — re-runnable on every startup. Fails quietly per-row so a flaky
+ * keychain doesn't block the rest of the migration. Audit-logs each success.
+ *
+ * Why not run inside `migrate()`? Keychain access is async and requires a
+ * native module. We don't want to make `getDb()` async, so this runs
+ * fire-and-forget after the sync migration finishes.
+ */
+async function migratePlaintextPasswordsToKeychain(): Promise<void> {
+  if (!_db) return;
+  // Lazy-import to avoid a cycle (keychain is consumer of db only via callers,
+  // but audit imports getDb).
+  const { setPassword: kcSet, isAvailable: kcAvailable } = await import('./keychain');
+  if (!(await kcAvailable())) return;
+
+  const rows = _db
+    .prepare("SELECT id, name, password FROM profiles WHERE password IS NOT NULL AND password != ''")
+    .all() as Array<{ id: number; name: string; password: string }>;
+  if (rows.length === 0) return;
+
+  const { audit } = await import('./audit');
+  let migrated = 0;
+
+  for (const r of rows) {
+    try {
+      const ok = await kcSet(r.id, r.password);
+      if (!ok) continue;
+      _db.prepare('UPDATE profiles SET password = NULL, uses_keychain = 1 WHERE id = ?').run(r.id);
+      audit({
+        event: 'profile.password_migrated',
+        target_type: 'profile',
+        target_id: r.id,
+        target_label: r.name,
+      });
+      migrated++;
+    } catch (e) {
+      console.warn(`failed to migrate profile ${r.id} (${r.name}) to keychain:`, e);
+    }
+  }
+
+  if (migrated > 0) {
+    console.log(`[ssh-manager] migrated ${migrated} plaintext password(s) into the OS keychain`);
   }
 }
 

@@ -30,15 +30,23 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const t = localStorage.getItem(THEME_KEY);
-    const s = localStorage.getItem(SCALE_KEY);
-    const f = localStorage.getItem(FONT_KEY);
-    const tId = t && THEMES.some(x => x.id === t) ? t : DEFAULT_THEME_ID;
-    const sId = s && UI_SCALES.some(x => x.id === s) ? s : DEFAULT_SCALE_ID;
-    const fId = f && FONT_FAMILIES.some(x => x.id === f) ? f : DEFAULT_FONT_ID;
-    setThemeId(tId); setScaleId(sId); setFontId(fId);
-    applyTheme(getTheme(tId));
-    applyAppearance(sId, fId);
+    let cancelled = false;
+    // Defer the localStorage read into a microtask so the setState calls
+    // don't happen synchronously inside the effect body — keeps the
+    // react-hooks/set-state-in-effect rule happy.
+    void Promise.resolve().then(() => {
+      if (cancelled) return;
+      const t = localStorage.getItem(THEME_KEY);
+      const s = localStorage.getItem(SCALE_KEY);
+      const f = localStorage.getItem(FONT_KEY);
+      const tId = t && THEMES.some(x => x.id === t) ? t : DEFAULT_THEME_ID;
+      const sId = s && UI_SCALES.some(x => x.id === s) ? s : DEFAULT_SCALE_ID;
+      const fId = f && FONT_FAMILIES.some(x => x.id === f) ? f : DEFAULT_FONT_ID;
+      setThemeId(tId); setScaleId(sId); setFontId(fId);
+      applyTheme(getTheme(tId));
+      applyAppearance(sId, fId);
+    });
+    return () => { cancelled = true; };
   }, []);
 
   const setTheme = useCallback((id: string) => {

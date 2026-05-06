@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import {
   FileText, Download, Upload, Settings as SettingsIcon, FolderInput,
   ShieldCheck, Lock, Database, RotateCcw, Trash2, AlertCircle, Eye, EyeOff,
+  Activity,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -19,6 +20,16 @@ interface BackupInfo {
   created_at: string;
   format_version: number | null;
   invalid?: string;
+}
+
+interface AuditRow {
+  id: number;
+  event: string;
+  target_type: string | null;
+  target_id: number | null;
+  target_label: string | null;
+  details: string | null;
+  at: string;
 }
 
 interface Props {
@@ -39,12 +50,15 @@ export default function SettingsDialog({ open, onClose, onChanged, onOpenSshImpo
   const [bkPassword, setBkPassword] = useState("");
   const [bkPasswordConfirm, setBkPasswordConfirm] = useState("");
   const [bkShowPwd, setBkShowPwd] = useState(false);
-  const [includeSecrets, setIncludeSecrets] = useState(true);
+  const includeSecrets = true;
   const [creating, setCreating] = useState(false);
 
   const [restoreFile, setRestoreFile] = useState<BackupInfo | null>(null);
   const [restorePwd, setRestorePwd] = useState("");
   const [restoring, setRestoring] = useState(false);
+
+  const [auditOpen, setAuditOpen] = useState(false);
+  const [auditRows, setAuditRows] = useState<AuditRow[]>([]);
 
   async function fetchBackups() {
     const res = await fetch("/api/backup/list");
@@ -55,7 +69,13 @@ export default function SettingsDialog({ open, onClose, onChanged, onOpenSshImpo
     }
   }
 
+  async function fetchAudit() {
+    const res = await fetch("/api/audit?limit=50");
+    if (res.ok) setAuditRows(await res.json());
+  }
+
   useEffect(() => { if (open) fetchBackups(); }, [open]);
+  useEffect(() => { if (open && auditOpen) fetchAudit(); }, [open, auditOpen]);
 
   function handleQuickExport() {
     window.location.href = "/api/export";
@@ -312,6 +332,40 @@ export default function SettingsDialog({ open, onClose, onChanged, onOpenSshImpo
               <span className="font-mono truncate">{backupsDir}</span>
             </p>
           </Section>
+
+          {/* Audit log — sensitive operations recorded by the app */}
+          <Section title="Recent activity">
+            <button
+              onClick={() => setAuditOpen(v => !v)}
+              className="w-full flex items-center gap-3 p-3 rounded-xl text-left transition-all"
+              style={{ border: "1px solid var(--border)", background: "transparent" }}
+            >
+              <div className="flex h-9 w-9 items-center justify-center rounded-lg shrink-0" style={{ background: "color-mix(in srgb, var(--accent) 10%, transparent)", color: "var(--accent)" }}>
+                <Activity className="h-4 w-4" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-[14px] font-semibold" style={{ color: "var(--foreground)" }}>Audit log</p>
+                <p className="text-[12px] mt-0.5" style={{ color: "var(--muted-fg)" }}>
+                  {auditOpen ? "Tap to hide" : "Tap to show recent profile changes, password reveals, and backup events"}
+                </p>
+              </div>
+            </button>
+            {auditOpen && (
+              <div className="space-y-1 max-h-64 overflow-y-auto rounded-lg border p-2" style={{ borderColor: "var(--border)" }}>
+                {auditRows.length === 0 ? (
+                  <p className="text-[12px] py-2 px-1" style={{ color: "var(--muted-fg)" }}>No events recorded yet.</p>
+                ) : auditRows.map(r => (
+                  <div key={r.id} className="flex items-baseline gap-3 text-[12px] py-1 px-1">
+                    <span className="font-mono shrink-0" style={{ color: "var(--subtle-fg)" }}>{shortTime(r.at)}</span>
+                    <span className="font-semibold shrink-0" style={{ color: eventColor(r.event) }}>{r.event}</span>
+                    {r.target_label && (
+                      <span className="truncate" style={{ color: "var(--muted-fg)" }}>{r.target_label}</span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </Section>
         </div>
 
         {/* Restore password prompt */}
@@ -433,4 +487,21 @@ function timeAgo(iso: string): string {
   const d = Math.floor(h / 24);
   if (d < 7) return `${d}d ago`;
   return new Date(iso).toLocaleDateString();
+}
+
+// Compact "MM-DD HH:mm" time for the audit log rows.
+function shortTime(iso: string): string {
+  // SQLite returns "YYYY-MM-DD HH:MM:SS" in UTC; treat it as UTC then localize.
+  const safe = iso.includes("T") ? iso : iso.replace(" ", "T") + "Z";
+  const d = new Date(safe);
+  if (isNaN(d.getTime())) return iso;
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function eventColor(event: string): string {
+  if (event.endsWith(".delete")) return "var(--destructive)";
+  if (event.includes("secret") || event.includes("password_migrated")) return "#fbbf24";
+  if (event.startsWith("backup.")) return "var(--accent)";
+  return "var(--foreground)";
 }
