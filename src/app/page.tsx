@@ -298,21 +298,20 @@ export default function Home() {
             <span className="font-semibold text-sm" style={{ color: "var(--foreground)" }}>SSH Manager</span>
           </button>
 
-          {/* Tabs only meaningful in dashboard layout. In split layout the
-              <main> isn't rendered, so the tabs would do nothing — hide them. */}
-          {layout === "dashboard" && (
-            <nav className="flex gap-1">
-              <TabButton active={tab === "saved"} onClick={() => setTab("saved")} icon={<Bookmark className="h-3.5 w-3.5" />} count={sessions.length}>
-                Saved
-              </TabButton>
-              <TabButton active={tab === "history"} onClick={() => setTab("history")} icon={<HistoryIcon className="h-3.5 w-3.5" />} count={history.length}>
-                History
-              </TabButton>
-              <TabButton active={tab === "profiles"} onClick={() => setTab("profiles")} icon={<KeyRound className="h-3.5 w-3.5" />} count={profiles.length}>
-                Profiles
-              </TabButton>
-            </nav>
-          )}
+          {/* Tabs work in both layouts:
+              - Dashboard layout: switches the <main> content area
+              - Split layout: switches the sidebar content (Saved / History / Profiles) */}
+          <nav className="flex gap-1">
+            <TabButton active={tab === "saved"} onClick={() => setTab("saved")} icon={<Bookmark className="h-3.5 w-3.5" />} count={sessions.length}>
+              Saved
+            </TabButton>
+            <TabButton active={tab === "history"} onClick={() => setTab("history")} icon={<HistoryIcon className="h-3.5 w-3.5" />} count={history.length}>
+              History
+            </TabButton>
+            <TabButton active={tab === "profiles"} onClick={() => setTab("profiles")} icon={<KeyRound className="h-3.5 w-3.5" />} count={profiles.length}>
+              Profiles
+            </TabButton>
+          </nav>
 
           {/* The empty space between the nav and the search/buttons is the
               draggable / double-click-to-zoom region. Putting drag-region on
@@ -396,7 +395,10 @@ export default function Home() {
       {hasBuiltInTerminal && layout === "split" && (
         <div className="flex-1 min-h-0 flex" style={{ background: "var(--background)" }}>
           <CompactSessionList
+            tab={tab}
             sessions={sessions}
+            profiles={profiles}
+            history={history}
             activeSessionId={openTerminals[openTerminals.length - 1]?.target.kind === "session"
               ? (openTerminals[openTerminals.length - 1].target as { kind: "session"; sessionId: number }).sessionId
               : null}
@@ -404,9 +406,29 @@ export default function Home() {
             collapsed={sidebarCollapsed}
             onWidthChange={setSidebarWidthPersisted}
             onToggleCollapsed={toggleSidebarCollapsed}
-            onOpen={(s) => openInBuiltInTerminal({ id: s.id, name: s.name })}
+            onOpenSession={(s) => openInBuiltInTerminal({ id: s.id, name: s.name })}
             onNewSession={openNewSession}
             onQuickConnect={() => setQuickConnectOpen(true)}
+            onConnectFromHistory={(h) => {
+              if (h.session_id) {
+                const matching = sessions.find(s => s.id === h.session_id);
+                if (matching) {
+                  openInBuiltInTerminal({ id: matching.id, name: matching.name });
+                  return;
+                }
+              }
+              if (h.profile_id) {
+                openAdHocTerminal({
+                  host: h.host, profileId: h.profile_id, port: h.port,
+                  jumpHost: h.jump_host || undefined, label: h.host,
+                });
+              } else {
+                toast.error("Can't reconnect — original profile no longer exists");
+              }
+            }}
+            onNewProfile={openNewProfile}
+            onEditProfile={(p) => { setEditingProfile(p); setProfileDialogOpen(true); }}
+            onDeleteProfile={(p) => setDeleteTarget({ type: "profile", id: p.id, name: p.name })}
           />
           <div className="flex-1 min-w-0">
             <TerminalPane
