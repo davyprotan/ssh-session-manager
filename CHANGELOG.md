@@ -2,6 +2,18 @@
 
 All notable changes to **SSH Manager**.
 
+## [0.9.6] — 2026-05-07
+
+### Hide dashboard-only header bits in split layout
+
+Reported: in split layout the Saved / History / Profiles tabs in the header click but don't do anything visible. Cause: split layout doesn't render the dashboard `<main>` (sessions live in the left sidebar instead), so toggling `tab` state has no effect.
+
+Fix: in split layout, hide the tab nav, the search input, and the sort dropdown — they only apply to dashboard. The "New session" button now always means *session* in split (was sometimes "New profile" if you'd previously been on the Profiles tab).
+
+To get to History / Profiles management, switch back to dashboard via the layout toggle in the header.
+
+(Followup option for later: surface History / Profiles as overlays so they're reachable from split too.)
+
 ## [0.9.5] — 2026-05-07
 
 ### Hotfix: tab buttons stopped working after the v0.9.4 drag-region change
