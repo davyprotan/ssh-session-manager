@@ -10,11 +10,16 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 const sshTerm = {
   /**
-   * Open a new ssh session in a pty.
-   * @param {object} opts {sessionId: number, cols?: number, rows?: number}
-   * @returns {Promise<{ok: true, handle: number, display: string} | {ok: false, error: string}>}
+   * Open a saved session in a pty.
+   * @param {object} opts {sessionId, cols?, rows?, disableAutoFill?}
    */
   open: (opts) => ipcRenderer.invoke('sshterm:open', opts),
+
+  /**
+   * Open an ad-hoc connection (host + profile, no saved session).
+   * @param {object} opts {host, profileId, port?, jumpHost?, label?, cols?, rows?, disableAutoFill?}
+   */
+  openAdHoc: (opts) => ipcRenderer.invoke('sshterm:open-ad-hoc', opts),
 
   /** Send keyboard input to the pty. */
   write: (handle, data) => ipcRenderer.invoke('sshterm:write', { handle, data }),

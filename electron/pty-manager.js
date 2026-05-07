@@ -81,6 +81,47 @@ function fetchSpawnPlan(sessionId) {
   return internalGet(`/api/sessions/${encodeURIComponent(sessionId)}/spawn-plan`);
 }
 
+function internalPost(pathname, body) {
+  return new Promise((resolve, reject) => {
+    const url = new URL(`${_config.appUrl}${pathname}`);
+    const payload = Buffer.from(JSON.stringify(body), 'utf8');
+    const req = http.request({
+      method: 'POST',
+      hostname: url.hostname,
+      port: url.port,
+      path: url.pathname + url.search,
+      headers: {
+        'x-internal-token': _config.internalToken,
+        'content-type': 'application/json',
+        'content-length': payload.length,
+      },
+    }, (res) => {
+      let respBody = '';
+      res.setEncoding('utf8');
+      res.on('data', (chunk) => { respBody += chunk; });
+      res.on('end', () => {
+        if (res.statusCode !== 200) {
+          let err = respBody;
+          try { err = JSON.parse(respBody)?.error || err; } catch { /* leave raw */ }
+          return reject(new Error(`${pathname} ${res.statusCode}: ${err}`));
+        }
+        try { resolve(JSON.parse(respBody)); }
+        catch (e) { reject(new Error(`${pathname} parse failed: ${e?.message || e}`)); }
+      });
+    });
+    req.on('error', reject);
+    req.setTimeout(5000, () => { req.destroy(new Error(`${pathname} timeout`)); });
+    req.write(payload);
+    req.end();
+  });
+}
+
+function fetchAdHocSpawnPlan({ host, profileId, port, jumpHost }) {
+  return internalPost('/api/internal/spawn-plan-ad-hoc', {
+    host, profile_id: profileId, port, jump_host: jumpHost,
+  });
+}
+
 function fetchProfileSecret(profileId) {
   return internalGet(`/api/profiles/${encodeURIComponent(profileId)}/internal-secret`)
     .then((data) => (data && typeof data.password === 'string') ? data.password : null);
@@ -204,36 +245,11 @@ function killAll() {
 function register(config) {
   _config = { ..._config, ...config };
 
-  ipcMain.handle('sshterm:open', async (event, payload) => {
-    const senderWindow = BrowserWindow.fromWebContents(event.sender);
-    if (!senderWindow) return { ok: false, error: 'no window' };
-
-    let owned = 0;
-    for (const s of sessions.values()) if (s.ownerId === senderWindow.id) owned++;
-    if (owned >= MAX_SESSIONS_PER_WINDOW) {
-      return { ok: false, error: `too many open terminals (${MAX_SESSIONS_PER_WINDOW})` };
-    }
-
-    const sessionId = Number(payload?.sessionId);
-    if (!Number.isInteger(sessionId) || sessionId <= 0) {
-      return { ok: false, error: 'invalid sessionId' };
-    }
-
-    const cols = Math.max(20, Math.min(500, Number(payload?.cols) || 80));
-    const rows = Math.max(5, Math.min(200, Number(payload?.rows) || 24));
-
-    let plan;
-    try {
-      plan = await fetchSpawnPlan(sessionId);
-    } catch (e) {
-      return { ok: false, error: e?.message || String(e) };
-    }
-
+  async function spawnFromPlan(senderWindow, plan, payload) {
     if (!Array.isArray(plan?.argv) || plan.argv.length === 0) {
       return { ok: false, error: 'spawn-plan returned empty argv' };
     }
-    // Defensive: every argv element must be a string. Anything else means the
-    // server-side validator misbehaved — bail rather than spawn weird input.
+    // Defensive: every argv element must be a string.
     for (const a of plan.argv) {
       if (typeof a !== 'string') {
         return { ok: false, error: 'spawn-plan argv contained non-string' };
@@ -242,6 +258,9 @@ function register(config) {
 
     const pty = loadPty();
     if (!pty) return { ok: false, error: 'node-pty unavailable on this platform' };
+
+    const cols = Math.max(20, Math.min(500, Number(payload?.cols) || 80));
+    const rows = Math.max(5, Math.min(200, Number(payload?.rows) || 24));
 
     let ptyProc;
     try {
@@ -253,7 +272,6 @@ function register(config) {
         env: {
           ...process.env,
           TERM: 'xterm-256color',
-          // Don't let ssh pop a separate Tk askpass window — our pty is the UI.
           DISPLAY: '',
           SSH_ASKPASS: '',
         },
@@ -263,14 +281,12 @@ function register(config) {
     }
 
     const handle = _nextHandle++;
-    // Renderer-supplied per-session autofill opt-out. Falls through to the
-    // global default in _config.autoFillEnabled.
     const perSessionAutoFill = payload?.disableAutoFill ? 'disabled' : 'pending';
     const session = {
       pty: ptyProc,
       ownerId: senderWindow.id,
       audit: {
-        sessionId,
+        sessionId: plan.sessionId ?? null,
         profileId: plan.profileId,
         profileAuthType: plan.profileAuthType,
         sessionLabel: plan.sessionLabel,
@@ -283,12 +299,19 @@ function register(config) {
 
     if (typeof _config.audit === 'function') {
       _config.audit('terminal.open', {
-        target_type: 'session',
-        target_id: sessionId,
+        target_type: plan.sessionId ? 'session' : 'profile',
+        target_id: plan.sessionId ?? plan.profileId ?? null,
         target_label: plan.sessionLabel,
+        details: { ad_hoc: !plan.sessionId },
       });
     }
 
+    wireDataAndExit(handle, session);
+    return { ok: true, handle, display: plan.display, sessionLabel: plan.sessionLabel };
+  }
+
+  function wireDataAndExit(handle, session) {
+    const ptyProc = session.pty;
     ptyProc.onData((data) => {
       const buf = Buffer.from(data, 'binary');
       session.ringBytes += buf.length;
@@ -316,9 +339,9 @@ function register(config) {
     ptyProc.onExit(({ exitCode, signal }) => {
       if (typeof _config.audit === 'function') {
         _config.audit('terminal.exit', {
-          target_type: 'session',
-          target_id: sessionId,
-          target_label: plan.sessionLabel,
+          target_type: session.audit.sessionId ? 'session' : 'profile',
+          target_id: session.audit.sessionId ?? session.audit.profileId ?? null,
+          target_label: session.audit.sessionLabel,
           details: { exitCode, signal },
         });
       }
@@ -328,8 +351,59 @@ function register(config) {
       }
       sessions.delete(handle);
     });
+  }
 
-    return { ok: true, handle, display: plan.display, sessionLabel: plan.sessionLabel };
+  ipcMain.handle('sshterm:open', async (event, payload) => {
+    const senderWindow = BrowserWindow.fromWebContents(event.sender);
+    if (!senderWindow) return { ok: false, error: 'no window' };
+    let owned = 0;
+    for (const s of sessions.values()) if (s.ownerId === senderWindow.id) owned++;
+    if (owned >= MAX_SESSIONS_PER_WINDOW) {
+      return { ok: false, error: `too many open terminals (${MAX_SESSIONS_PER_WINDOW})` };
+    }
+
+    const sessionId = Number(payload?.sessionId);
+    if (!Number.isInteger(sessionId) || sessionId <= 0) {
+      return { ok: false, error: 'invalid sessionId' };
+    }
+
+    let plan;
+    try { plan = await fetchSpawnPlan(sessionId); }
+    catch (e) { return { ok: false, error: e?.message || String(e) }; }
+
+    return spawnFromPlan(senderWindow, plan, payload);
+  });
+
+  ipcMain.handle('sshterm:open-ad-hoc', async (event, payload) => {
+    const senderWindow = BrowserWindow.fromWebContents(event.sender);
+    if (!senderWindow) return { ok: false, error: 'no window' };
+    let owned = 0;
+    for (const s of sessions.values()) if (s.ownerId === senderWindow.id) owned++;
+    if (owned >= MAX_SESSIONS_PER_WINDOW) {
+      return { ok: false, error: `too many open terminals (${MAX_SESSIONS_PER_WINDOW})` };
+    }
+
+    const host = typeof payload?.host === 'string' ? payload.host.trim() : '';
+    const profileId = Number(payload?.profileId);
+    if (!host || !Number.isInteger(profileId) || profileId <= 0) {
+      return { ok: false, error: 'host and profileId required' };
+    }
+
+    let plan;
+    try {
+      plan = await fetchAdHocSpawnPlan({
+        host,
+        profileId,
+        port: Number.isFinite(Number(payload?.port)) ? Number(payload.port) : undefined,
+        jumpHost: typeof payload?.jumpHost === 'string' ? payload.jumpHost : undefined,
+      });
+      // Override the label if the caller supplied one (typically the host).
+      if (typeof payload?.label === 'string' && payload.label.trim()) {
+        plan.sessionLabel = payload.label.trim();
+      }
+    } catch (e) { return { ok: false, error: e?.message || String(e) }; }
+
+    return spawnFromPlan(senderWindow, plan, payload);
   });
 
   ipcMain.handle('sshterm:write', (event, { handle, data }) => {

@@ -5,14 +5,14 @@
 // a real multi-tab strip.
 
 import { useEffect, useState } from "react";
-import Terminal from "./Terminal";
+import Terminal, { type TerminalTarget } from "./Terminal";
 import { Terminal as TerminalIcon, X, ChevronDown, ChevronUp } from "lucide-react";
 
 export interface OpenTerminal {
-  /** A locally unique key — distinct from the DB session id, since the same
+  /** A locally unique key — distinct from the underlying target so the same
    *  session may be open in multiple tabs at once. */
   key: string;
-  sessionId: number;
+  target: TerminalTarget;
   label: string;
 }
 
@@ -110,7 +110,7 @@ export default function TerminalPane({ terminals, onCloseTab, onCloseAll }: Prop
               style={{ display: t.key === activeKey ? "block" : "none" }}
             >
               <Terminal
-                sessionId={t.sessionId}
+                target={t.target}
                 label={t.label}
                 onClose={() => onCloseTab(t.key)}
               />

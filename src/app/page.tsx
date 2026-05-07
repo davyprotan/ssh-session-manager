@@ -62,11 +62,35 @@ export default function Home() {
       return;
     }
     setOpenTerminals((prev) => {
-      // If the same session is already open, refocus rather than duplicate.
-      const existing = prev.find((t) => t.sessionId === s.id);
+      // If the same saved session is already open, refocus rather than dup.
+      const existing = prev.find((t) => t.target.kind === "session" && t.target.sessionId === s.id);
       if (existing) return prev;
-      return [...prev, { key: `t${Date.now()}-${s.id}`, sessionId: s.id, label: s.name }];
+      return [...prev, {
+        key: `t${Date.now()}-${s.id}`,
+        target: { kind: "session", sessionId: s.id },
+        label: s.name,
+      }];
     });
+  }, [hasBuiltInTerminal]);
+
+  const openAdHocTerminal = useCallback((opts: {
+    host: string; profileId: number; port?: number; jumpHost?: string; label?: string;
+  }) => {
+    if (!hasBuiltInTerminal) {
+      toast.error("Built-in terminal requires the desktop app");
+      return;
+    }
+    setOpenTerminals((prev) => [...prev, {
+      key: `t${Date.now()}-${opts.host}`,
+      target: {
+        kind: "ad-hoc",
+        host: opts.host,
+        profileId: opts.profileId,
+        port: opts.port,
+        jumpHost: opts.jumpHost,
+      },
+      label: opts.label || opts.host,
+    }]);
   }, [hasBuiltInTerminal]);
 
   const closeTerminal = useCallback((key: string) => {
@@ -481,13 +505,14 @@ export default function Home() {
         onClose={() => setQuickConnectOpen(false)}
         profiles={profiles}
         allSessions={sessions}
+        useBuiltInTerminal={hasBuiltInTerminal}
+        onOpenSavedInTerminal={openInBuiltInTerminal}
+        onOpenAdHocInTerminal={openAdHocTerminal}
         onProfilesChanged={() => { fetchProfiles(); fetchSessions(); }}
         onSessionSaved={(saved) => {
           fetchSessions();
-          // If the user saved a password-auth session, auto-prompt for passwordless setup
           if (saved && saved.profile_auth_type === "password") {
             setTimeout(() => {
-              // Re-fetch then resolve the freshly saved session for the dialog
               fetch(`/api/sessions`).then(r => r.json()).then((rows: Session[]) => {
                 const fresh = rows.find(s => s.id === saved.id);
                 if (fresh) setPasswordlessTarget(fresh);
