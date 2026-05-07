@@ -17,6 +17,12 @@ import SettingsDialog from "@/components/SettingsDialog";
 import ImportSshConfigDialog from "@/components/ImportSshConfigDialog";
 import HistoryRow from "@/components/HistoryRow";
 import SetupPasswordlessDialog from "@/components/SetupPasswordlessDialog";
+import dynamic from "next/dynamic";
+import type { OpenTerminal } from "@/components/TerminalPane";
+
+// xterm.js touches `self` at module-load. Skip SSR so the build doesn't
+// trip on the prerender pass.
+const TerminalPane = dynamic(() => import("@/components/TerminalPane"), { ssr: false });
 import { toast } from "sonner";
 import type { Session, Profile, Folder, HistoryEntry } from "@/lib/types";
 import { COLOR_HEX, type ProfileColor } from "@/lib/profile-colors";
@@ -45,6 +51,29 @@ export default function Home() {
   const [passwordlessTarget, setPasswordlessTarget] = useState<Session | null>(null);
 
   const [deleteTarget, setDeleteTarget] = useState<{ type: "session" | "profile"; id: number; name: string } | null>(null);
+
+  // Built-in terminals — stack of open ssh sessions rendered in TerminalPane.
+  const [openTerminals, setOpenTerminals] = useState<OpenTerminal[]>([]);
+  const hasBuiltInTerminal = typeof window !== "undefined" && !!window.sshTerm;
+
+  const openInBuiltInTerminal = useCallback((s: { id: number; name: string }) => {
+    if (!hasBuiltInTerminal) {
+      toast.error("Built-in terminal requires the desktop app");
+      return;
+    }
+    setOpenTerminals((prev) => {
+      // If the same session is already open, refocus rather than duplicate.
+      const existing = prev.find((t) => t.sessionId === s.id);
+      if (existing) return prev;
+      return [...prev, { key: `t${Date.now()}-${s.id}`, sessionId: s.id, label: s.name }];
+    });
+  }, [hasBuiltInTerminal]);
+
+  const closeTerminal = useCallback((key: string) => {
+    setOpenTerminals((prev) => prev.filter((t) => t.key !== key));
+  }, []);
+
+  const closeAllTerminals = useCallback(() => setOpenTerminals([]), []);
 
   const fetchSessions = useCallback(async () => {
     const res = await fetch("/api/sessions");
@@ -299,6 +328,7 @@ export default function Home() {
                     folder={group.folder}
                     sessions={group.sessions}
                     onConnect={handleConnect}
+                    onOpenInTerminal={hasBuiltInTerminal ? openInBuiltInTerminal : undefined}
                     onEdit={s => { setEditingSession(s); setSessionDialogOpen(true); }}
                     onClone={handleClone}
                     onDelete={s => setDeleteTarget({ type: "session", id: s.id, name: s.name })}
@@ -413,6 +443,14 @@ export default function Home() {
         )}
       </main>
 
+      {hasBuiltInTerminal && (
+        <TerminalPane
+          terminals={openTerminals}
+          onCloseTab={closeTerminal}
+          onCloseAll={closeAllTerminals}
+        />
+      )}
+
       <SessionDialog
         open={sessionDialogOpen}
         onClose={() => setSessionDialogOpen(false)}
@@ -498,10 +536,11 @@ export default function Home() {
   );
 }
 
-function FolderSection({ folder, sessions, onConnect, onEdit, onClone, onDelete, onSetupPasswordless }: {
+function FolderSection({ folder, sessions, onConnect, onOpenInTerminal, onEdit, onClone, onDelete, onSetupPasswordless }: {
   folder: Folder | null;
   sessions: Session[];
   onConnect: (s: Session) => void;
+  onOpenInTerminal?: (s: Session) => void;
   onEdit: (s: Session) => void;
   onClone: (s: Session) => void;
   onDelete: (s: Session) => void;
@@ -526,6 +565,7 @@ function FolderSection({ folder, sessions, onConnect, onEdit, onClone, onDelete,
             key={s.id}
             session={s}
             onConnect={onConnect}
+            onOpenInTerminal={onOpenInTerminal}
             onEdit={onEdit}
             onClone={onClone}
             onDelete={onDelete}
