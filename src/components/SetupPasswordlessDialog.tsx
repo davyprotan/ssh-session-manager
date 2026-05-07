@@ -61,7 +61,10 @@ export default function SetupPasswordlessDialog({ open, onClose, session, target
       });
       const v = await validate.json();
       if (v.exists) {
-        pubKeyPath = privPath.replace(/^~/, "") + ".pub";
+        // Keep the original prefix (`~/` or absolute) intact — the server
+        // expands `~` against the user's home directory. Stripping `~` here
+        // produced a broken absolute path like `/.ssh/id_rsa.pub`.
+        pubKeyPath = privPath + ".pub";
       } else {
         privPath = "";
       }

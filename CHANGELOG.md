@@ -2,6 +2,39 @@
 
 All notable changes to **SSH Manager**.
 
+## [0.8.2] — 2026-05-07
+
+### Fix passwordless-setup: tilde expansion + sandboxing on `ssh-copy-id`
+
+#### Bug
+`Set up passwordless login` against a profile whose `key_path` started with `~/` produced a malformed argv:
+
+```
+ssh-copy-id '-i' '/.ssh/id_rsa.pub' 'user@host'
+```
+
+i.e. a leading `/` instead of the user's home directory. `ssh-copy-id` then errored with `failed to open ID file '/.ssh/id_rsa.pub': No such file or directory`. The cause was a client-side line in `SetupPasswordlessDialog` that stripped `~` without expanding it (`privPath.replace(/^~/, "") + ".pub"`).
+
+#### Fix
+- Client now sends the raw path with `~` intact
+- New `src/lib/ssh-paths.ts` resolves `~/foo` against `os.homedir()` and **rejects anything outside `~/.ssh/`** (sandbox). Used by `/api/keys/copy-id`. Bare relative paths, `..` traversal, and root-relative paths like `/etc/passwd` or `/.ssh/foo` are now all rejected with a 400
+- Server also returns 400 if the resolved public key file doesn't exist (instead of letting `ssh-copy-id` discover that in the terminal)
+
+#### Hardening (carry-over from v0.8.0)
+The `/api/keys/copy-id` AppleScript was still building its script via string interpolation — the v0.8.0 positional-argv fix was only applied to `/api/connect`. Now both routes pass the command as `argv[1]` to `osascript`, eliminating any concern about quote/backslash/newline escapes breaking out of the AppleScript string.
+
+#### Tests
+- 8 new tests in `src/lib/ssh-paths.test.ts` covering the fix and the sandbox (path traversal, foreign roots, bare `~`, the exact `/.ssh/...` legacy bug input)
+- Total: 57 tests across 5 files
+
+#### End-to-end verification
+| Input | v0.8.1 | v0.8.2 |
+|---|---|---|
+| `/.ssh/id_rsa.pub` (the bug) | passed through verbatim → ssh-copy-id error | **400** rejected |
+| `/etc/passwd` | passed through verbatim | **400** "must live under ~/.ssh/" |
+| `~/.ssh/foo.pub` (file exists) | tilde stripped → `/.ssh/foo.pub` (broken) | **200** expanded to `/Users/<u>/.ssh/foo.pub` |
+| `~/.ssh/missing.pub` | passed through, error in terminal | **400** "public key not found" |
+
 ## [0.8.1] — 2026-05-06
 
 ### v0.8.0 follow-ups
