@@ -1,6 +1,6 @@
 {
   "name": "ssh-session-manager",
-  "version": "0.9.6",
+  "version": "0.9.7",
   "private": true,
   "main": "electron/main.js",
   "description": "Local SSH session and credential manager — Next.js + Electron, dark cyan UI",

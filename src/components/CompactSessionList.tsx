@@ -2,24 +2,46 @@
 
 // A slim sidebar list of saved sessions for the "Split" layout.
 // Click a session → opens it in the terminal pane.
+//
+// Features:
+//   - Filter input
+//   - Resizable: drag the right edge to set width between 220–640px
+//   - Collapsible: chevron in the header toggles a thin (40px) rail
+//   - Both width + collapsed state persist via parent (localStorage)
 
-import { useMemo, useState } from "react";
-import { Search, Plus, Zap, Clock, Lock, Key, ShieldCheck } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Search, Plus, Zap, Clock, Lock, Key, ShieldCheck, ChevronLeft, ChevronRight } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { COLOR_HEX, type ProfileColor } from "@/lib/profile-colors";
 import type { Session } from "@/lib/types";
 
+const MIN_WIDTH = 220;
+const MAX_WIDTH = 640;
+const COLLAPSED_WIDTH = 40;
+
 interface Props {
   sessions: Session[];
   /** session id of the currently-active terminal, if any. Used for highlighting. */
   activeSessionId?: number | null;
+  /** Current sidebar width (full mode). */
+  width: number;
+  /** True when the sidebar is collapsed to a thin rail. */
+  collapsed: boolean;
+  /** Persist a new width. Caller is responsible for clamping if it cares. */
+  onWidthChange: (px: number) => void;
+  /** Toggle collapsed state. */
+  onToggleCollapsed: () => void;
   onOpen: (s: Session) => void;
   onNewSession: () => void;
   onQuickConnect: () => void;
 }
 
-export default function CompactSessionList({ sessions, activeSessionId, onOpen, onNewSession, onQuickConnect }: Props) {
+export default function CompactSessionList({
+  sessions, activeSessionId,
+  width, collapsed, onWidthChange, onToggleCollapsed,
+  onOpen, onNewSession, onQuickConnect,
+}: Props) {
   const [search, setSearch] = useState("");
 
   const filtered = useMemo(() => {
@@ -33,7 +55,6 @@ export default function CompactSessionList({ sessions, activeSessionId, onOpen, 
           (s.profile_name?.toLowerCase().includes(q) ?? false),
       );
     }
-    // Sort by last-connected desc, fall back to name
     return [...list].sort((a, b) => {
       const at = a.last_connected_at ? new Date(a.last_connected_at).getTime() : 0;
       const bt = b.last_connected_at ? new Date(b.last_connected_at).getTime() : 0;
@@ -42,13 +63,88 @@ export default function CompactSessionList({ sessions, activeSessionId, onOpen, 
     });
   }, [sessions, search]);
 
+  // ─── Drag-to-resize the right edge ────────────────────────────────────
+  const dragStateRef = useRef<{ startX: number; startWidth: number } | null>(null);
+  const onResizeStart = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    if (collapsed) return;
+    e.preventDefault();
+    dragStateRef.current = { startX: e.clientX, startWidth: width };
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+  }, [width, collapsed]);
+
+  useEffect(() => {
+    function onMove(e: MouseEvent) {
+      const s = dragStateRef.current;
+      if (!s) return;
+      const next = Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, s.startWidth + (e.clientX - s.startX)));
+      onWidthChange(next);
+    }
+    function onUp() {
+      if (!dragStateRef.current) return;
+      dragStateRef.current = null;
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    }
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    return () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+  }, [onWidthChange]);
+
+  // ─── Collapsed rail ───────────────────────────────────────────────────
+  if (collapsed) {
+    return (
+      <aside
+        className="flex flex-col h-full items-center pt-2 gap-1 shrink-0"
+        style={{
+          width: COLLAPSED_WIDTH,
+          flex: `0 0 ${COLLAPSED_WIDTH}px`,
+          borderRight: "1px solid var(--border)",
+          background: "var(--card)",
+        }}
+      >
+        <Button
+          size="sm" variant="ghost" className="h-7 w-7 p-0"
+          onClick={onToggleCollapsed}
+          title="Show sidebar"
+          style={{ color: "var(--muted-fg)" }}
+        >
+          <ChevronRight className="h-3.5 w-3.5" />
+        </Button>
+        <Button
+          size="sm" variant="ghost" className="h-7 w-7 p-0 mt-1"
+          onClick={onQuickConnect}
+          title="Quick connect"
+          style={{ color: "var(--accent)" }}
+        >
+          <Zap className="h-3.5 w-3.5" />
+        </Button>
+        <Button
+          size="sm" variant="ghost" className="h-7 w-7 p-0"
+          onClick={onNewSession}
+          title="New session"
+          style={{ color: "var(--muted-fg)" }}
+        >
+          <Plus className="h-3.5 w-3.5" />
+        </Button>
+      </aside>
+    );
+  }
+
+  // ─── Full sidebar ─────────────────────────────────────────────────────
   return (
-    <aside className="flex flex-col h-full" style={{
-      borderRight: "1px solid var(--border)",
-      background: "var(--card)",
-      width: 300,
-      flex: "0 0 300px",
-    }}>
+    <aside
+      className="flex flex-col h-full relative"
+      style={{
+        borderRight: "1px solid var(--border)",
+        background: "var(--card)",
+        width,
+        flex: `0 0 ${width}px`,
+      }}
+    >
       {/* Header */}
       <div className="px-3 py-2.5 flex items-center gap-1.5 shrink-0" style={{ borderBottom: "1px solid var(--border)" }}>
         <h2 className="text-[12px] font-semibold uppercase tracking-wider flex-1" style={{ color: "var(--muted-fg)" }}>
@@ -73,6 +169,16 @@ export default function CompactSessionList({ sessions, activeSessionId, onOpen, 
           style={{ color: "var(--muted-fg)" }}
         >
           <Plus className="h-3.5 w-3.5" />
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={onToggleCollapsed}
+          className="h-7 w-7 p-0"
+          title="Collapse sidebar"
+          style={{ color: "var(--muted-fg)" }}
+        >
+          <ChevronLeft className="h-3.5 w-3.5" />
         </Button>
       </div>
 
@@ -108,6 +214,22 @@ export default function CompactSessionList({ sessions, activeSessionId, onOpen, 
           ))
         )}
       </div>
+
+      {/* Drag handle on the right edge — 6px hit zone, 1px visible line on hover */}
+      <div
+        onMouseDown={onResizeStart}
+        onDoubleClick={() => onWidthChange(300)}
+        className="absolute top-0 bottom-0 -right-[3px] w-[6px] z-10"
+        style={{ cursor: "col-resize" }}
+        title="Drag to resize · double-click to reset"
+      >
+        <div
+          className="h-full w-px ml-[2.5px] transition-colors"
+          style={{ background: "transparent" }}
+          onMouseEnter={(e) => { (e.currentTarget as HTMLDivElement).style.background = "color-mix(in srgb, var(--accent) 50%, transparent)"; }}
+          onMouseLeave={(e) => { if (!dragStateRef.current) (e.currentTarget as HTMLDivElement).style.background = "transparent"; }}
+        />
+      </div>
     </aside>
   );
 }
@@ -135,7 +257,6 @@ function SessionRow({ session: s, active, onClick }: { session: Session; active:
         if (!active) (e.currentTarget as HTMLButtonElement).style.background = "transparent";
       }}
     >
-      {/* Color rail */}
       <div className="w-0.5 self-stretch rounded-full mt-0.5" style={{ background: accent }} />
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-1.5">

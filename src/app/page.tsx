@@ -27,6 +27,9 @@ const TerminalPane = dynamic(() => import("@/components/TerminalPane"), { ssr: f
 
 type LayoutMode = "dashboard" | "split";
 const LAYOUT_KEY = "ssh-manager-layout";
+const SIDEBAR_WIDTH_KEY = "ssh-manager-sidebar-width";
+const SIDEBAR_COLLAPSED_KEY = "ssh-manager-sidebar-collapsed";
+const DEFAULT_SIDEBAR_WIDTH = 300;
 import { toast } from "sonner";
 import type { Session, Profile, Folder, HistoryEntry } from "@/lib/types";
 import { COLOR_HEX, type ProfileColor } from "@/lib/profile-colors";
@@ -64,6 +67,9 @@ export default function Home() {
   // or "split" (compact session sidebar on the left, terminal fills the rest).
   // Defaults to dashboard. Persisted to localStorage.
   const [layout, setLayout] = useState<LayoutMode>("dashboard");
+  const [sidebarWidth, setSidebarWidth] = useState<number>(DEFAULT_SIDEBAR_WIDTH);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(false);
+
   // Defer the localStorage read into a microtask to keep the
   // react-hooks/set-state-in-effect rule happy.
   useEffect(() => {
@@ -73,6 +79,9 @@ export default function Home() {
       try {
         const v = localStorage.getItem(LAYOUT_KEY);
         if (v === "split" || v === "dashboard") setLayout(v);
+        const w = parseInt(localStorage.getItem(SIDEBAR_WIDTH_KEY) || "");
+        if (Number.isFinite(w) && w >= 220 && w <= 640) setSidebarWidth(w);
+        if (localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === "true") setSidebarCollapsed(true);
       } catch { /* ignore */ }
     });
     return () => { cancelled = true; };
@@ -80,6 +89,17 @@ export default function Home() {
   const setLayoutPersisted = useCallback((m: LayoutMode) => {
     setLayout(m);
     try { localStorage.setItem(LAYOUT_KEY, m); } catch { /* ignore */ }
+  }, []);
+  const setSidebarWidthPersisted = useCallback((px: number) => {
+    setSidebarWidth(px);
+    try { localStorage.setItem(SIDEBAR_WIDTH_KEY, String(Math.round(px))); } catch { /* ignore */ }
+  }, []);
+  const toggleSidebarCollapsed = useCallback(() => {
+    setSidebarCollapsed((prev) => {
+      const next = !prev;
+      try { localStorage.setItem(SIDEBAR_COLLAPSED_KEY, String(next)); } catch { /* ignore */ }
+      return next;
+    });
   }, []);
 
   const openInBuiltInTerminal = useCallback((s: { id: number; name: string }) => {
@@ -380,6 +400,10 @@ export default function Home() {
             activeSessionId={openTerminals[openTerminals.length - 1]?.target.kind === "session"
               ? (openTerminals[openTerminals.length - 1].target as { kind: "session"; sessionId: number }).sessionId
               : null}
+            width={sidebarWidth}
+            collapsed={sidebarCollapsed}
+            onWidthChange={setSidebarWidthPersisted}
+            onToggleCollapsed={toggleSidebarCollapsed}
             onOpen={(s) => openInBuiltInTerminal({ id: s.id, name: s.name })}
             onNewSession={openNewSession}
             onQuickConnect={() => setQuickConnectOpen(true)}

@@ -2,6 +2,20 @@
 
 All notable changes to **SSH Manager**.
 
+## [0.9.7] — 2026-05-07
+
+### Resizable + collapsible sidebar in split layout
+
+The split-layout sidebar now adapts to how much space you want it to take.
+
+- **Drag the right edge** to resize between **220 px and 640 px**. A subtle accent-coloured 1-px line appears on hover to telegraph the hit zone (6 px wide for easy grabbing). Width persists across launches
+- **Double-click the edge** to reset to 300 px
+- **Collapse to a thin rail** via a chevron button in the sidebar header. The rail is 40 px wide and keeps the Quick Connect / New Session shortcuts plus an expand chevron, so you never lose access. Collapsed state persists too
+
+New localStorage keys:
+- `ssh-manager-sidebar-width` (number, clamped 220–640)
+- `ssh-manager-sidebar-collapsed` (boolean)
+
 ## [0.9.6] — 2026-05-07
 
 ### Hide dashboard-only header bits in split layout
