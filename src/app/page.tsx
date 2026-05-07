@@ -265,7 +265,7 @@ export default function Home() {
     <div className="flex flex-col h-screen overflow-hidden" style={{ background: "var(--background)" }}>
       <UpdateBanner />
       {/* Header */}
-      <header className="app-drag-region sticky top-0 z-20 border-b" style={{ borderColor: "var(--border)", background: "color-mix(in srgb, var(--background) 85%, transparent)", backdropFilter: "blur(12px)" }}>
+      <header className="sticky top-0 z-20 border-b" style={{ borderColor: "var(--border)", background: "color-mix(in srgb, var(--background) 85%, transparent)", backdropFilter: "blur(12px)" }}>
         <div className="max-w-5xl mx-auto px-5 h-14 flex items-center gap-3">
           <button
             onClick={() => { setTab("saved"); setSearch(""); }}
@@ -290,7 +290,11 @@ export default function Home() {
             </TabButton>
           </nav>
 
-          <div className="flex-1" />
+          {/* The empty space between the nav and the search/buttons is the
+              draggable / double-click-to-zoom region. Putting drag-region on
+              the whole header risked breaking button clicks; this slice is
+              guaranteed to never contain interactive elements. */}
+          <div className="flex-1 self-stretch app-drag-region" />
 
           <div className="relative w-48">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 pointer-events-none" style={{ color: "var(--muted-fg)" }} />

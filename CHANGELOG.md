@@ -2,6 +2,18 @@
 
 All notable changes to **SSH Manager**.
 
+## [0.9.5] — 2026-05-07
+
+### Hotfix: tab buttons stopped working after the v0.9.4 drag-region change
+
+v0.9.4 marked the entire `<header>` as `-webkit-app-region: drag` and used a child-selector rule to restore `no-drag` on every interactive element. The CSS shipped correctly, but **clicks on the tab navigation buttons (Saved / History / Profiles) stopped firing** in the packaged app — almost certainly an Electron / Chromium quirk where parent-set drag regions interact with descendant buttons under certain layout conditions.
+
+**Fix**: instead of marking the entire header as draggable, mark only the **empty `flex-1` spacer between the nav and the search box** as draggable. That region can never contain an interactive element by construction, so there's no risk of swallowing clicks.
+
+You lose a bit of drag area — you can drag from the gap between Profiles tab and the search input, and from the gap between the right-most button and the window edge isn't part of it (those are the buttons themselves) — but everything that should click, does.
+
+The CSS rule + class are kept (still used by `UpdateBanner`); the only change is *where* `app-drag-region` is applied in the header.
+
 ## [0.9.4] — 2026-05-07
 
 ### Fix: window title-bar gestures (drag, double-click-to-zoom)
