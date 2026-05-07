@@ -2,6 +2,20 @@
 
 All notable changes to **SSH Manager**.
 
+## [0.9.8] — 2026-05-07
+
+### Tabbed sidebar in split layout
+
+v0.9.6 hid the **Saved / History / Profiles** tabs in split layout because clicking them did nothing (the dashboard `<main>` doesn't render in split). v0.9.8 brings the tabs back and **makes them switch the sidebar's content**:
+
+- **Saved** (default) — list of saved sessions, click to open in the terminal pane
+- **History** — recent connections, click to reconnect (saved-by-id when possible, ad-hoc otherwise — both go through the built-in terminal with auto-password)
+- **Profiles** — profile list with hover-to-show **Edit** and **Delete** buttons; **+** button in the sidebar header opens the new-profile dialog
+
+The per-tab title in the sidebar header updates ("Sessions · 5" / "History · 23" / "Profiles · 5"), the filter input filters whichever list is active, and the tab nav remains visible in both layouts so switching is fast either way.
+
+In dashboard layout the tabs work exactly as before — they switch the full-width `<main>` content. The same `tab` state drives both layouts, so clicking Profiles in dashboard then toggling to split keeps you on Profiles, and vice-versa.
+
 ## [0.9.7] — 2026-05-07
 
 ### Resizable + collapsible sidebar in split layout
