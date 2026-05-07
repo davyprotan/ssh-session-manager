@@ -2,6 +2,29 @@
 
 All notable changes to **SSH Manager**.
 
+## [0.9.3] — 2026-05-07
+
+### Layout toggle: dashboard ↔ split
+
+A small icon in the header toggles between two layouts. Choice persists across launches in `localStorage`.
+
+#### Dashboard (default — unchanged)
+Full-width sessions / history / profiles tabs. Terminal pane slides up from the bottom. Best for managing your fleet — see everything at a glance, organize folders, edit profiles.
+
+#### Split (new)
+- **Compact session list on the left** (~300 px sidebar): hostname + profile + last-connected, sorted by recency, with an inline filter
+- **Terminal fills the rest of the window**, full height
+- A small empty-state ("Click a session on the left to connect.") shows when no terminals are open
+- Quick Connect and New Session buttons inline in the sidebar header
+- Settings, theme, and the Quick Connect dialog all stay accessible in the main app header
+
+The toggle button only appears when running in the desktop app — split layout is meaningless without the built-in terminal. Browser dev mode keeps the dashboard layout always.
+
+#### Implementation
+- `src/components/CompactSessionList.tsx` — new component for the sidebar
+- `src/components/TerminalPane.tsx` — extracted `TabStrip` so dashboard (collapsible-bottom-strip) and split (full-height) modes share it. Added a `stretched` prop and `emptyState` slot for the split case
+- Root container changed from `min-h-screen` to `h-screen overflow-hidden` so the split layout's `flex-1` actually has a viewport-sized parent. Dashboard's main is now `overflow-y-auto` to preserve scrollability of long lists
+
 ## [0.9.2] — 2026-05-07
 
 ### Quick Connect: probe-first, click-to-connect

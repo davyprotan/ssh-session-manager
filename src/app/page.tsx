@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select";
-import { Plus, Search, KeyRound, Terminal, Wifi, Zap, Settings, FolderClosed, ArrowUpDown, Bookmark, History as HistoryIcon, Trash2 } from "lucide-react";
+import { Plus, Search, KeyRound, Terminal, Wifi, Zap, Settings, FolderClosed, ArrowUpDown, Bookmark, History as HistoryIcon, Trash2, LayoutGrid, Columns2 } from "lucide-react";
 import ThemePicker from "@/components/ThemePicker";
 import UpdateBanner from "@/components/UpdateBanner";
 import SessionCard from "@/components/SessionCard";
@@ -19,10 +19,14 @@ import HistoryRow from "@/components/HistoryRow";
 import SetupPasswordlessDialog from "@/components/SetupPasswordlessDialog";
 import dynamic from "next/dynamic";
 import type { OpenTerminal } from "@/components/TerminalPane";
+import CompactSessionList from "@/components/CompactSessionList";
 
 // xterm.js touches `self` at module-load. Skip SSR so the build doesn't
 // trip on the prerender pass.
 const TerminalPane = dynamic(() => import("@/components/TerminalPane"), { ssr: false });
+
+type LayoutMode = "dashboard" | "split";
+const LAYOUT_KEY = "ssh-manager-layout";
 import { toast } from "sonner";
 import type { Session, Profile, Folder, HistoryEntry } from "@/lib/types";
 import { COLOR_HEX, type ProfileColor } from "@/lib/profile-colors";
@@ -55,6 +59,28 @@ export default function Home() {
   // Built-in terminals — stack of open ssh sessions rendered in TerminalPane.
   const [openTerminals, setOpenTerminals] = useState<OpenTerminal[]>([]);
   const hasBuiltInTerminal = typeof window !== "undefined" && !!window.sshTerm;
+
+  // Layout: "dashboard" (current — full-width sessions, terminal pane below)
+  // or "split" (compact session sidebar on the left, terminal fills the rest).
+  // Defaults to dashboard. Persisted to localStorage.
+  const [layout, setLayout] = useState<LayoutMode>("dashboard");
+  // Defer the localStorage read into a microtask to keep the
+  // react-hooks/set-state-in-effect rule happy.
+  useEffect(() => {
+    let cancelled = false;
+    void Promise.resolve().then(() => {
+      if (cancelled) return;
+      try {
+        const v = localStorage.getItem(LAYOUT_KEY);
+        if (v === "split" || v === "dashboard") setLayout(v);
+      } catch { /* ignore */ }
+    });
+    return () => { cancelled = true; };
+  }, []);
+  const setLayoutPersisted = useCallback((m: LayoutMode) => {
+    setLayout(m);
+    try { localStorage.setItem(LAYOUT_KEY, m); } catch { /* ignore */ }
+  }, []);
 
   const openInBuiltInTerminal = useCallback((s: { id: number; name: string }) => {
     if (!hasBuiltInTerminal) {
@@ -236,7 +262,7 @@ export default function Home() {
   function refreshAll() { fetchSessions(); fetchProfiles(); fetchFolders(); fetchHistory(); }
 
   return (
-    <div className="flex flex-col min-h-screen" style={{ background: "var(--background)" }}>
+    <div className="flex flex-col h-screen overflow-hidden" style={{ background: "var(--background)" }}>
       <UpdateBanner />
       {/* Header */}
       <header className="sticky top-0 z-20 border-b" style={{ borderColor: "var(--border)", background: "color-mix(in srgb, var(--background) 85%, transparent)", backdropFilter: "blur(12px)" }}>
@@ -290,6 +316,22 @@ export default function Home() {
             </Select>
           )}
 
+          {hasBuiltInTerminal && (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-8 w-8 p-0"
+              onClick={() => setLayoutPersisted(layout === "dashboard" ? "split" : "dashboard")}
+              title={layout === "dashboard" ? "Switch to split layout (sidebar + terminal)" : "Switch to dashboard layout"}
+              aria-label="Toggle layout"
+              style={{ color: layout === "split" ? "var(--accent)" : "var(--muted-fg)" }}
+            >
+              {layout === "dashboard"
+                ? <Columns2 className="h-4 w-4" />
+                : <LayoutGrid className="h-4 w-4" />}
+            </Button>
+          )}
+
           <Button size="sm" variant="ghost" className="h-8 w-8 p-0" onClick={() => setSettingsOpen(true)} title="Settings, import & export" aria-label="Settings, import & export" style={{ color: "var(--muted-fg)" }}>
             <Settings className="h-4 w-4" />
           </Button>
@@ -320,7 +362,30 @@ export default function Home() {
         </div>
       </header>
 
-      <main className="flex-1 max-w-5xl mx-auto w-full px-5 py-7">
+      {hasBuiltInTerminal && layout === "split" && (
+        <div className="flex-1 min-h-0 flex" style={{ background: "var(--background)" }}>
+          <CompactSessionList
+            sessions={sessions}
+            activeSessionId={openTerminals[openTerminals.length - 1]?.target.kind === "session"
+              ? (openTerminals[openTerminals.length - 1].target as { kind: "session"; sessionId: number }).sessionId
+              : null}
+            onOpen={(s) => openInBuiltInTerminal({ id: s.id, name: s.name })}
+            onNewSession={openNewSession}
+            onQuickConnect={() => setQuickConnectOpen(true)}
+          />
+          <div className="flex-1 min-w-0">
+            <TerminalPane
+              terminals={openTerminals}
+              onCloseTab={closeTerminal}
+              onCloseAll={closeAllTerminals}
+              stretched
+            />
+          </div>
+        </div>
+      )}
+
+      {(!hasBuiltInTerminal || layout === "dashboard") && (
+      <main className="flex-1 min-h-0 overflow-y-auto"><div className="max-w-5xl mx-auto w-full px-5 py-7">
         {tab === "saved" && (
           <>
             {sessions.length === 0 ? (
@@ -465,9 +530,10 @@ export default function Home() {
             )}
           </>
         )}
-      </main>
+      </div></main>
+      )}
 
-      {hasBuiltInTerminal && (
+      {hasBuiltInTerminal && layout === "dashboard" && (
         <TerminalPane
           terminals={openTerminals}
           onCloseTab={closeTerminal}
