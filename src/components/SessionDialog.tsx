@@ -8,11 +8,12 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { X, FolderClosed, Network } from "lucide-react";
+import { X, FolderClosed, Network, Sparkles } from "lucide-react";
 import ProfilePicker from "./ProfilePicker";
 import ProfileDialog from "./ProfileDialog";
 import type { Profile, Session, Folder } from "@/lib/types";
 import { COLOR_HEX, type ProfileColor } from "@/lib/profile-colors";
+import { suggestProfileForHost, type SuggestResult } from "@/lib/profile-suggest";
 
 interface Props {
   open: boolean;
@@ -23,11 +24,13 @@ interface Props {
   session?: Session | null;
   profiles: Profile[];
   folders: Folder[];
+  /** All other saved sessions — used to suggest a profile based on hostname pattern. */
+  allSessions?: Session[];
   onProfilesChanged: () => void;
   onFoldersChanged: () => void;
 }
 
-export default function SessionDialog({ open, onClose, onSave, session, profiles, folders, onProfilesChanged, onFoldersChanged }: Props) {
+export default function SessionDialog({ open, onClose, onSave, session, profiles, folders, allSessions = [], onProfilesChanged, onFoldersChanged }: Props) {
   const [name, setName] = useState("");
   const [host, setHost] = useState("");
   const [port, setPort] = useState("22");
@@ -42,6 +45,11 @@ export default function SessionDialog({ open, onClose, onSave, session, profiles
   const [profileDialogOpen, setProfileDialogOpen] = useState(false);
   const [newFolderInput, setNewFolderInput] = useState(false);
   const [newFolderName, setNewFolderName] = useState("");
+  // Tracks whether the user has explicitly clicked a profile this session.
+  // While false, the profile auto-updates as the user types the host. Once
+  // true, manual choice wins and we stop overriding.
+  const [userPickedProfile, setUserPickedProfile] = useState(false);
+  const [suggestion, setSuggestion] = useState<SuggestResult | null>(null);
 
   useEffect(() => {
     if (session) {
@@ -65,9 +73,32 @@ export default function SessionDialog({ open, onClose, onSave, session, profiles
       setTags([]);
     }
     setError("");
+    setUserPickedProfile(false);
+    setSuggestion(null);
     setNewFolderInput(false);
     setNewFolderName("");
   }, [session, open, profiles]);
+
+  // Whenever the host changes (in CREATE mode only and before the user has
+  // overridden), recompute the suggested profile from existing sessions and
+  // auto-select it. The user can still click any profile to override.
+  useEffect(() => {
+    if (session) return; // edit mode — never auto-override an existing choice
+    if (!host.trim()) { setSuggestion(null); return; }
+    const r = suggestProfileForHost(
+      host.trim(),
+      allSessions.map((s) => ({ host: s.host, profile_id: s.profile_id })),
+    );
+    setSuggestion(r);
+    if (!userPickedProfile && r.profileId != null) {
+      setProfileId(r.profileId);
+    }
+  }, [host, allSessions, session, userPickedProfile]);
+
+  function pickProfile(id: number | null) {
+    setProfileId(id);
+    setUserPickedProfile(true);
+  }
 
   function addTag(e: React.KeyboardEvent) {
     if ((e.key === "Enter" || e.key === ",") && tagInput.trim()) {
@@ -176,12 +207,27 @@ export default function SessionDialog({ open, onClose, onSave, session, profiles
                   </span>
                 )}
               </div>
+              {!session && suggestion && suggestion.profileId != null && (
+                <div className="flex items-start gap-2 rounded-lg px-2.5 py-1.5 text-[11.5px]" style={{
+                  background: "color-mix(in srgb, var(--accent) 8%, transparent)",
+                  color: "var(--muted-fg)",
+                }}>
+                  <Sparkles className="h-3.5 w-3.5 shrink-0 mt-px" style={{ color: "var(--accent)" }} />
+                  <span>
+                    Auto-selected based on{" "}
+                    <span className="font-mono" style={{ color: "var(--foreground)" }}>{suggestion.matchedPrefix}</span>{" "}
+                    pattern ({suggestion.matchedCount} similar host{suggestion.matchedCount === 1 ? "" : "s"}).
+                    {userPickedProfile && " — overridden by you"}
+                  </span>
+                </div>
+              )}
               <ProfilePicker
                 profiles={profiles}
                 selectedId={profileId}
-                onSelect={setProfileId}
+                onSelect={pickProfile}
                 onNewProfile={() => setProfileDialogOpen(true)}
                 showNoneOption
+                suggestedId={!session ? suggestion?.profileId ?? null : null}
               />
             </div>
 

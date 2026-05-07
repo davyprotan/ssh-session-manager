@@ -428,6 +428,7 @@ export default function Home() {
         session={editingSession}
         profiles={profiles}
         folders={folders}
+        allSessions={sessions}
         onProfilesChanged={() => { fetchProfiles(); fetchSessions(); }}
         onFoldersChanged={fetchFolders}
       />
@@ -441,6 +442,7 @@ export default function Home() {
         open={quickConnectOpen}
         onClose={() => setQuickConnectOpen(false)}
         profiles={profiles}
+        allSessions={sessions}
         onProfilesChanged={() => { fetchProfiles(); fetchSessions(); }}
         onSessionSaved={(saved) => {
           fetchSessions();
