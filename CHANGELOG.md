@@ -2,6 +2,21 @@
 
 All notable changes to **SSH Manager**.
 
+## [0.9.4] — 2026-05-07
+
+### Fix: window title-bar gestures (drag, double-click-to-zoom)
+
+The window uses `titleBarStyle: 'hiddenInset'` (no traditional title bar, just the traffic-light buttons), but we never told macOS which region of the page should act *as* the title bar. Result: dragging from the top did nothing, and double-clicking the top didn't zoom the window per System Settings → Desktop & Dock → "Double-click a window's title bar to:".
+
+**Fix**: new `.app-drag-region` CSS class that opts a region into `-webkit-app-region: drag`, with a child rule that re-asserts `no-drag` on every interactive element (`button`, `input`, `select`, `textarea`, `a`, `[role="button"]`, `[role="combobox"]`). Applied to the main app `<header>` and to `UpdateBanner` so the very top of the window is always draggable. Buttons / inputs / theme picker / Quick Connect / etc. all stay clickable thanks to the no-drag override.
+
+Result on macOS:
+- **Drag** from any empty part of the header → moves the window
+- **Double-click** any empty part of the header → zoom (or whatever you set in System Settings)
+- All buttons and inputs in the header remain fully interactive
+
+Cross-platform: `-webkit-app-region` is ignored in browser dev mode and on Linux X11. On Windows the same property works for frameless windows; harmless otherwise.
+
 ## [0.9.3] — 2026-05-07
 
 ### Layout toggle: dashboard ↔ split

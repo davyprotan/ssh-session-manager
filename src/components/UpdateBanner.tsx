@@ -69,7 +69,7 @@ export default function UpdateBanner() {
 
   return (
     <div
-      className="border-b px-4 py-2 flex items-center gap-3"
+      className="app-drag-region border-b px-4 py-2 flex items-center gap-3"
       style={{
         background: "color-mix(in srgb, var(--accent) 8%, var(--background))",
         borderColor: "color-mix(in srgb, var(--accent) 30%, transparent)",
