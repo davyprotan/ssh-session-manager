@@ -1,6 +1,6 @@
 "use client";
 
-import { Key, Lock, Plus, Check, Star, ShieldCheck } from "lucide-react";
+import { Key, Lock, Plus, Check, Star, ShieldCheck, Sparkles } from "lucide-react";
 import { COLOR_HEX, type ProfileColor } from "@/lib/profile-colors";
 import type { Profile } from "@/lib/types";
 
@@ -11,9 +11,11 @@ interface Props {
   onNewProfile?: () => void;
   showNoneOption?: boolean;
   compact?: boolean;
+  /** Optional: id of the auto-suggested profile, gets a "Suggested" badge. */
+  suggestedId?: number | null;
 }
 
-export default function ProfilePicker({ profiles, selectedId, onSelect, onNewProfile, showNoneOption = false, compact = false }: Props) {
+export default function ProfilePicker({ profiles, selectedId, onSelect, onNewProfile, showNoneOption = false, compact = false, suggestedId = null }: Props) {
   if (profiles.length === 0) {
     return (
       <button
@@ -95,6 +97,15 @@ export default function ProfilePicker({ profiles, selectedId, onSelect, onNewPro
                 {p.is_default ? (
                   <Star className="h-3.5 w-3.5 shrink-0 fill-current" style={{ color }} />
                 ) : null}
+                {suggestedId === p.id && (
+                  <span
+                    className="inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide shrink-0"
+                    style={{ background: `${color}26`, color }}
+                  >
+                    <Sparkles className="h-2.5 w-2.5" />
+                    Suggested
+                  </span>
+                )}
               </div>
               <div className="flex items-center gap-1.5 mt-1">
                 <span className="text-[12.5px] font-mono truncate" style={{ color: "var(--muted-fg)" }}>{p.username}</span>

@@ -2,6 +2,25 @@
 
 All notable changes to **SSH Manager**.
 
+## [0.8.5] — 2026-05-07
+
+### Auto-suggest the right profile when adding a new session
+
+In a mixed fleet some hosts use one credential profile (e.g. local-user key auth) and others use a different one (e.g. LDAP password). Picking the right one every time is friction.
+
+This release **infers the right profile from the hostname pattern**. As you type the host in the New Session or Quick Connect dialog, the app looks at your existing sessions for similar hostnames and pre-selects the matching profile.
+
+- Algorithm: split the new hostname into segments (on `-`, `.`, `_`), find the existing session that shares the most leading + trailing segments with it, then pick the **modal** profile_id among neighbours at that depth. Case-insensitive. Requires at least 2 segments in common.
+- Handles both dash-named gear (`XN-XSVM-S-67-LDP02-GB` → suggest based on `XN-XSVM-S-` prefix) and FQDNs (`backups.sohonet.internal` → suggest based on `.sohonet.internal` suffix).
+- Visible UX: the matching profile gets a **"Suggested"** badge in the picker, and a small banner above the list shows the matched pattern and how many similar hosts informed the guess (e.g. *"Auto-selected based on `XN-XSVM-S` pattern (3 similar hosts)"*).
+- Override is one click — pick any other profile and the manual choice wins. The banner notes "— overridden by you" so you can tell auto-pick is no longer active.
+- Wired into both **New session** and **Quick Connect**. In Edit mode, the existing profile is left alone — never silently changes a saved session's profile.
+- Self-improving: every session you save makes future suggestions sharper. No configuration needed.
+
+#### Tests
+- 10 new in `src/lib/profile-suggest.test.ts` — fleet-prefix matching, FQDN trailing-segment matching, tie-breaking by modal profile, case insensitivity, depth-prioritization, ignores `null` profile_id neighbours.
+- **89/89 tests passing across 7 files** (was 78 across 6).
+
 ## [0.8.4] — 2026-05-07
 
 ### Sync to `~/.ssh/config` — kill the "type my password every time" loop

@@ -5,22 +5,25 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogD
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Zap, Terminal, Check, BookmarkPlus, KeyRound } from "lucide-react";
+import { Zap, Terminal, Check, BookmarkPlus, KeyRound, Sparkles } from "lucide-react";
 import ProfilePicker from "./ProfilePicker";
 import ProfileDialog from "./ProfileDialog";
 import SetupPasswordlessDialog from "./SetupPasswordlessDialog";
 import { toast } from "sonner";
-import type { Profile } from "@/lib/types";
+import type { Profile, Session } from "@/lib/types";
+import { suggestProfileForHost, type SuggestResult } from "@/lib/profile-suggest";
 
 interface Props {
   open: boolean;
   onClose: () => void;
   profiles: Profile[];
+  /** Used to suggest the right profile based on hostname pattern. */
+  allSessions?: Session[];
   onProfilesChanged: () => void;
   onSessionSaved?: (saved?: { id: number; name: string; host: string; profile_auth_type?: string | null }) => void;
 }
 
-export default function QuickConnectDialog({ open, onClose, profiles, onProfilesChanged, onSessionSaved }: Props) {
+export default function QuickConnectDialog({ open, onClose, profiles, allSessions = [], onProfilesChanged, onSessionSaved }: Props) {
   const [host, setHost] = useState("");
   const [port, setPort] = useState("");
   const [profileId, setProfileId] = useState<number | null>(null);
@@ -29,6 +32,8 @@ export default function QuickConnectDialog({ open, onClose, profiles, onProfiles
   const [connecting, setConnecting] = useState(false);
   const [profileDialogOpen, setProfileDialogOpen] = useState(false);
   const [passwordlessOpen, setPasswordlessOpen] = useState(false);
+  const [userPickedProfile, setUserPickedProfile] = useState(false);
+  const [suggestion, setSuggestion] = useState<SuggestResult | null>(null);
 
   useEffect(() => {
     if (open) {
@@ -36,10 +41,30 @@ export default function QuickConnectDialog({ open, onClose, profiles, onProfiles
       setPort("");
       setSaveSession(false);
       setSessionName("");
+      setUserPickedProfile(false);
+      setSuggestion(null);
       const def = profiles.find(p => p.is_default) || profiles[0];
       setProfileId(def?.id ?? null);
     }
   }, [open, profiles]);
+
+  // Auto-suggest a profile from the hostname pattern as the user types.
+  useEffect(() => {
+    if (!host.trim()) { setSuggestion(null); return; }
+    const r = suggestProfileForHost(
+      host.trim(),
+      allSessions.map((s) => ({ host: s.host, profile_id: s.profile_id })),
+    );
+    setSuggestion(r);
+    if (!userPickedProfile && r.profileId != null) {
+      setProfileId(r.profileId);
+    }
+  }, [host, allSessions, userPickedProfile]);
+
+  function pickProfile(id: number | null) {
+    setProfileId(id);
+    setUserPickedProfile(true);
+  }
 
   // Default the session name to the host as the user types
   useEffect(() => {
@@ -143,11 +168,26 @@ export default function QuickConnectDialog({ open, onClose, profiles, onProfiles
 
             <div className="space-y-2">
               <Label className="text-[12.5px] font-semibold" style={{ color: "var(--muted-fg)" }}>Use credentials from</Label>
+              {suggestion && suggestion.profileId != null && (
+                <div className="flex items-start gap-2 rounded-lg px-2.5 py-1.5 text-[11.5px]" style={{
+                  background: "color-mix(in srgb, var(--accent) 8%, transparent)",
+                  color: "var(--muted-fg)",
+                }}>
+                  <Sparkles className="h-3.5 w-3.5 shrink-0 mt-px" style={{ color: "var(--accent)" }} />
+                  <span>
+                    Auto-selected based on{" "}
+                    <span className="font-mono" style={{ color: "var(--foreground)" }}>{suggestion.matchedPrefix}</span>{" "}
+                    pattern ({suggestion.matchedCount} similar host{suggestion.matchedCount === 1 ? "" : "s"}).
+                    {userPickedProfile && " — overridden by you"}
+                  </span>
+                </div>
+              )}
               <ProfilePicker
                 profiles={profiles}
                 selectedId={profileId}
-                onSelect={setProfileId}
+                onSelect={pickProfile}
                 onNewProfile={() => setProfileDialogOpen(true)}
+                suggestedId={suggestion?.profileId ?? null}
               />
             </div>
 
