@@ -2,6 +2,18 @@
 
 All notable changes to **SSH Manager**.
 
+## [0.9.1] — 2026-05-07
+
+### Quick Connect now uses the built-in terminal
+
+v0.9.0 wired session-card connects to the in-app terminal pane, but **Quick Connect** still went through `/api/connect` → AppleScript → iTerm. Fixed.
+
+- New internal-only endpoint `POST /api/internal/spawn-plan-ad-hoc` returns a validated argv for `host + profile_id` (with optional `port` and `jump_host`) — same `buildSshArgs` validation as the saved-session path
+- New `window.sshTerm.openAdHoc({ host, profileId, port?, jumpHost?, label?, ... })` IPC and `sshterm:open-ad-hoc` handler in `electron/pty-manager.js`. Refactored `spawnFromPlan` so saved-session and ad-hoc share the spawn / data-pipe / exit-audit logic
+- `Terminal.tsx` now takes a discriminated-union `target: { kind: "session" | "ad-hoc", ... }` instead of a bare `sessionId`; `TerminalPane` and the Quick Connect flow updated accordingly
+- **Auto-password fill works for ad-hoc connections too** — the spawn plan returns the `profileId` so the prompt-detector → keychain-fetch path is identical to saved sessions
+- Quick Connect with "Save as session" off → ad-hoc terminal pane opens, no record left in the session list. With it on → session is saved first, then opened by id (so the session card auto-suggest can learn from it)
+
 ## [0.9.0] — 2026-05-07
 
 ### Built-in terminal — Termius-style smooth connect, password fatigue gone

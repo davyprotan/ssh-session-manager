@@ -34,6 +34,17 @@ export interface SshTermBridge {
      *  for this session even if the global setting allows it. */
     disableAutoFill?: boolean;
   }): Promise<OpenResult>;
+  /** Open an ad-hoc connection (Quick Connect): host + profile, no saved session. */
+  openAdHoc(opts: {
+    host: string;
+    profileId: number;
+    port?: number;
+    jumpHost?: string;
+    label?: string;
+    cols?: number;
+    rows?: number;
+    disableAutoFill?: boolean;
+  }): Promise<OpenResult>;
   write(handle: number, data: string): Promise<WriteResult>;
   resize(handle: number, cols: number, rows: number): Promise<ResizeResult>;
   close(handle: number): Promise<CloseResult>;

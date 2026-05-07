@@ -30,9 +30,22 @@ function getAutoFillSetting(): boolean {
   } catch { return true; }
 }
 
-interface Props {
-  /** Numeric session id from the DB. */
+interface SavedSessionTarget {
+  kind: "session";
   sessionId: number;
+}
+interface AdHocTarget {
+  kind: "ad-hoc";
+  host: string;
+  profileId: number;
+  port?: number;
+  jumpHost?: string;
+}
+export type TerminalTarget = SavedSessionTarget | AdHocTarget;
+
+interface Props {
+  /** What to spawn — saved session or ad-hoc host. */
+  target: TerminalTarget;
   /** Display label for the header. */
   label: string;
   /** Called when the terminal exits (for parent to clean up tab/pane). */
@@ -50,7 +63,7 @@ type ConnState =
 
 const TEXT_DECODER = new TextDecoder("utf-8", { fatal: false });
 
-export default function Terminal({ sessionId, label, onExit, onClose }: Props) {
+export default function Terminal({ target, label, onExit, onClose }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<XTerm | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
@@ -103,12 +116,20 @@ export default function Terminal({ sessionId, label, onExit, onClose }: Props) {
 
     let aborted = false;
 
-    bridge.open({
-      sessionId, cols, rows,
-      // Per-session auto-fill follows the global Setting. Future iterations
-      // may add a per-session override on the card.
-      disableAutoFill: !getAutoFillSetting(),
-    }).then((res) => {
+    const disableAutoFill = !getAutoFillSetting();
+    const openCall = target.kind === "session"
+      ? bridge.open({ sessionId: target.sessionId, cols, rows, disableAutoFill })
+      : bridge.openAdHoc({
+          host: target.host,
+          profileId: target.profileId,
+          port: target.port,
+          jumpHost: target.jumpHost,
+          label,
+          cols, rows,
+          disableAutoFill,
+        });
+
+    openCall.then((res) => {
       if (aborted) {
         if (res.ok) bridge.close(res.handle);
         return;
@@ -178,9 +199,13 @@ export default function Terminal({ sessionId, label, onExit, onClose }: Props) {
       fitRef.current = null;
     };
     // We deliberately omit `onExit` from deps — we want to mount once per
-    // sessionId and not tear down on parent re-renders.
+    // target identity and not tear down on parent re-renders.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionId]);
+  }, [
+    // Identity key — change in any of these means "different connection".
+    target.kind,
+    target.kind === "session" ? target.sessionId : `${target.host}:${target.port ?? 22}@${target.profileId}`,
+  ]);
 
   return (
     <div className="flex flex-col h-full" style={{ background: "#0d1117" }}>

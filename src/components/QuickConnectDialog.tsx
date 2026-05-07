@@ -19,11 +19,21 @@ interface Props {
   profiles: Profile[];
   /** Used to suggest the right profile based on hostname pattern. */
   allSessions?: Session[];
+  /** When true, prefer the built-in terminal pane over launching iTerm. */
+  useBuiltInTerminal?: boolean;
+  /** Open a freshly-saved session in the built-in terminal pane. */
+  onOpenSavedInTerminal?: (s: { id: number; name: string }) => void;
+  /** Open an ad-hoc connection (no save) in the built-in terminal pane. */
+  onOpenAdHocInTerminal?: (opts: { host: string; profileId: number; port?: number; jumpHost?: string; label?: string }) => void;
   onProfilesChanged: () => void;
   onSessionSaved?: (saved?: { id: number; name: string; host: string; profile_auth_type?: string | null }) => void;
 }
 
-export default function QuickConnectDialog({ open, onClose, profiles, allSessions = [], onProfilesChanged, onSessionSaved }: Props) {
+export default function QuickConnectDialog({
+  open, onClose, profiles, allSessions = [],
+  useBuiltInTerminal = false, onOpenSavedInTerminal, onOpenAdHocInTerminal,
+  onProfilesChanged, onSessionSaved,
+}: Props) {
   const [host, setHost] = useState("");
   const [port, setPort] = useState("");
   const [profileId, setProfileId] = useState<number | null>(null);
@@ -103,7 +113,24 @@ export default function QuickConnectDialog({ open, onClose, profiles, allSession
       }
     }
 
-    // Use the saved session_id if we just created it, else quick-connect via host+profile
+    // Built-in terminal path: open in-app pane instead of launching iTerm.
+    if (useBuiltInTerminal) {
+      setConnecting(false);
+      if (savedSessionId != null && onOpenSavedInTerminal) {
+        onOpenSavedInTerminal({ id: savedSessionId, name: (sessionName || host).trim() });
+      } else if (onOpenAdHocInTerminal) {
+        onOpenAdHocInTerminal({
+          host: host.trim(),
+          profileId,
+          port: port ? parseInt(port) : undefined,
+          label: host.trim(),
+        });
+      }
+      onClose();
+      return;
+    }
+
+    // Legacy path: launch iTerm/Terminal.app via /api/connect.
     const connectBody = savedSessionId
       ? { session_id: savedSessionId }
       : {
