@@ -278,17 +278,21 @@ export default function Home() {
             <span className="font-semibold text-sm" style={{ color: "var(--foreground)" }}>SSH Manager</span>
           </button>
 
-          <nav className="flex gap-1">
-            <TabButton active={tab === "saved"} onClick={() => setTab("saved")} icon={<Bookmark className="h-3.5 w-3.5" />} count={sessions.length}>
-              Saved
-            </TabButton>
-            <TabButton active={tab === "history"} onClick={() => setTab("history")} icon={<HistoryIcon className="h-3.5 w-3.5" />} count={history.length}>
-              History
-            </TabButton>
-            <TabButton active={tab === "profiles"} onClick={() => setTab("profiles")} icon={<KeyRound className="h-3.5 w-3.5" />} count={profiles.length}>
-              Profiles
-            </TabButton>
-          </nav>
+          {/* Tabs only meaningful in dashboard layout. In split layout the
+              <main> isn't rendered, so the tabs would do nothing — hide them. */}
+          {layout === "dashboard" && (
+            <nav className="flex gap-1">
+              <TabButton active={tab === "saved"} onClick={() => setTab("saved")} icon={<Bookmark className="h-3.5 w-3.5" />} count={sessions.length}>
+                Saved
+              </TabButton>
+              <TabButton active={tab === "history"} onClick={() => setTab("history")} icon={<HistoryIcon className="h-3.5 w-3.5" />} count={history.length}>
+                History
+              </TabButton>
+              <TabButton active={tab === "profiles"} onClick={() => setTab("profiles")} icon={<KeyRound className="h-3.5 w-3.5" />} count={profiles.length}>
+                Profiles
+              </TabButton>
+            </nav>
+          )}
 
           {/* The empty space between the nav and the search/buttons is the
               draggable / double-click-to-zoom region. Putting drag-region on
@@ -296,18 +300,20 @@ export default function Home() {
               guaranteed to never contain interactive elements. */}
           <div className="flex-1 self-stretch app-drag-region" />
 
-          <div className="relative w-48">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 pointer-events-none" style={{ color: "var(--muted-fg)" }} />
-            <Input
-              className="pl-8 h-8 text-sm"
-              style={{ background: "var(--muted)", borderColor: "var(--border)", color: "var(--foreground)" }}
-              placeholder="Search…"
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-            />
-          </div>
+          {layout === "dashboard" && (
+            <div className="relative w-48">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 pointer-events-none" style={{ color: "var(--muted-fg)" }} />
+              <Input
+                className="pl-8 h-8 text-sm"
+                style={{ background: "var(--muted)", borderColor: "var(--border)", color: "var(--foreground)" }}
+                placeholder="Search…"
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+              />
+            </div>
+          )}
 
-          {tab === "saved" && (
+          {layout === "dashboard" && tab === "saved" && (
             <Select value={sortBy} onValueChange={(v) => v && changeSort(v as SortBy)}>
               <SelectTrigger className="h-8 w-auto gap-1 px-2 text-sm" style={{ background: "var(--muted)", borderColor: "var(--border)", color: "var(--muted-fg)" }} title="Sort saved hosts">
                 <ArrowUpDown className="h-3.5 w-3.5" />
@@ -358,10 +364,11 @@ export default function Home() {
             size="sm"
             className="h-8 gap-1.5 text-sm font-medium"
             style={{ background: "var(--accent)", color: "var(--accent-foreground)", border: "none" }}
-            onClick={tab === "profiles" ? openNewProfile : openNewSession}
+            // In split layout the tab nav is hidden — always default to "new session".
+            onClick={layout === "dashboard" && tab === "profiles" ? openNewProfile : openNewSession}
           >
             <Plus className="h-3.5 w-3.5" />
-            {tab === "profiles" ? "New profile" : "New session"}
+            {layout === "dashboard" && tab === "profiles" ? "New profile" : "New session"}
           </Button>
         </div>
       </header>
