@@ -2,6 +2,48 @@
 
 All notable changes to **SSH Manager**.
 
+## [0.8.4] — 2026-05-07
+
+### Sync to `~/.ssh/config` — kill the "type my password every time" loop
+
+The motivating problem: a typical fleet is mostly **network gear** (Arista switches, ADVA OptiSwitches, Cisco / Juniper / etc.), where:
+- `ssh-copy-id` doesn't work — vendor CLIs aren't POSIX shells
+- key auth often isn't supported, or requires per-vendor config commands
+- you're stuck typing the same password into every device
+
+The right fix is **macOS's built-in `UseKeychain yes`** — type the password once, the keychain remembers it, Touch ID supplies it on every subsequent connection. This release wires the whole flow up:
+
+#### New: Settings → ssh_config → Sync now
+Writes a marked block to `~/.ssh/config` with one `Host` entry per saved session. For each entry it includes:
+- `Host <slug> <hostname>` (memorable alias + the real hostname)
+- `HostName`, `User`, `Port` (only when non-default), `ProxyJump` (if jump host set)
+- For **key-auth** profiles: `IdentityFile` + `IdentitiesOnly yes`
+- For **password-auth** profiles on macOS: `UseKeychain yes` + `AddKeysToAgent yes` + `PreferredAuthentications publickey,keyboard-interactive,password`
+- `Compression yes`, `ForwardAgent yes`, `ServerAliveInterval N` when set on the profile
+
+Behaviour:
+- **Idempotent**: regenerable any time. Anything outside the `# === BEGIN/END SSH Manager managed block ===` markers is preserved
+- **Safe**: file is written atomically (tmp + rename), permissions set to `0600`, the previous content is snapshot under `~/.ssh-session-manager/backups/` before each write (last 10 kept)
+- **Reversible**: a "Remove block" button strips the managed block while leaving everything else intact
+- **Defensive**: any session whose host fails the safe-character regex is skipped during emission (config-injection guard)
+
+After syncing, on macOS:
+1. `ssh AR-7050SX348C8-I-1-LDP02-GB` (or its slug) — first time, type the password; macOS asks if you want to store it in the Keychain → say yes
+2. Every subsequent connection: Touch ID, instant login. Works for *all* vendor gear that accepts password auth, not just POSIX boxes
+3. Anything else that reads `~/.ssh/config` (CLI ssh, VS Code Remote, scp, rsync) gets the same shortcuts for free
+
+#### New: `GET / POST /api/ssh-config`
+- `GET` returns status (file exists?, managed block present?, host count, generation timestamp) plus a **preview** of what `Sync now` would write — visible from the UI behind a "Preview" toggle
+- `POST { action: "sync" }` writes the block; `POST { action: "remove" }` strips it. Both audit-logged
+
+#### Tests
+- `src/lib/ssh-config-export.test.ts` — 21 tests covering the pure generator: macOS vs non-macOS keychain emission, port omission for default 22, ProxyJump, Compression / ForwardAgent / keepalive, slug collapsing, unsafe-host skipping, multi-session ordering. Plus the splice/remove logic for inserting and stripping the managed block out of an existing config
+
+**Total: 78 tests across 6 files** (was 57 across 5).
+
+#### Lint config
+- ESLint now ignores `dist/**` (electron-builder's output, which contains a copy of `.next/**` and was getting scanned after a packaged build)
+
 ## [0.8.3] — 2026-05-07
 
 ### Hotfix: CSP `script-src` was too strict for Next.js App Router

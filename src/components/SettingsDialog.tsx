@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import {
   FileText, Download, Upload, Settings as SettingsIcon, FolderInput,
   ShieldCheck, Lock, Database, RotateCcw, Trash2, AlertCircle, Eye, EyeOff,
-  Activity,
+  Activity, FileCode, RefreshCw, Eraser,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -30,6 +30,16 @@ interface AuditRow {
   target_label: string | null;
   details: string | null;
   at: string;
+}
+
+interface SshConfigStatus {
+  path: string;
+  fileExists: boolean;
+  managedBlockPresent: boolean;
+  managedBlockHostCount: number;
+  managedBlockGeneratedAt: string | null;
+  preview: string;
+  previewHostCount: number;
 }
 
 interface Props {
@@ -60,6 +70,10 @@ export default function SettingsDialog({ open, onClose, onChanged, onOpenSshImpo
   const [auditOpen, setAuditOpen] = useState(false);
   const [auditRows, setAuditRows] = useState<AuditRow[]>([]);
 
+  const [sshConfigStatus, setSshConfigStatus] = useState<SshConfigStatus | null>(null);
+  const [sshConfigBusy, setSshConfigBusy] = useState(false);
+  const [sshConfigPreviewOpen, setSshConfigPreviewOpen] = useState(false);
+
   async function fetchBackups() {
     const res = await fetch("/api/backup/list");
     if (res.ok) {
@@ -74,7 +88,60 @@ export default function SettingsDialog({ open, onClose, onChanged, onOpenSshImpo
     if (res.ok) setAuditRows(await res.json());
   }
 
+  async function fetchSshConfig() {
+    const res = await fetch("/api/ssh-config");
+    if (res.ok) setSshConfigStatus(await res.json());
+  }
+
+  async function syncSshConfig() {
+    setSshConfigBusy(true);
+    try {
+      const res = await fetch("/api/ssh-config", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "sync" }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        if (data.action === "noop") {
+          toast.success("ssh_config already up to date");
+        } else {
+          toast.success(`ssh_config ${data.action} (${data.hostCount} hosts)`, {
+            description: data.path,
+          });
+        }
+        await fetchSshConfig();
+      } else {
+        toast.error("Sync failed", { description: data.error });
+      }
+    } finally {
+      setSshConfigBusy(false);
+    }
+  }
+
+  async function removeSshConfigBlock() {
+    if (!window.confirm("Remove the SSH Manager block from ~/.ssh/config? Everything outside the markers will be preserved.")) return;
+    setSshConfigBusy(true);
+    try {
+      const res = await fetch("/api/ssh-config", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "remove" }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        toast.success(data.action === "removed" ? "Block removed" : "Nothing to remove");
+        await fetchSshConfig();
+      } else {
+        toast.error("Remove failed", { description: data.error });
+      }
+    } finally {
+      setSshConfigBusy(false);
+    }
+  }
+
   useEffect(() => { if (open) fetchBackups(); }, [open]);
+  useEffect(() => { if (open) fetchSshConfig(); }, [open]);
   useEffect(() => { if (open && auditOpen) fetchAudit(); }, [open, auditOpen]);
 
   function handleQuickExport() {
@@ -331,6 +398,73 @@ export default function SettingsDialog({ open, onClose, onChanged, onOpenSshImpo
               <FolderInput className="h-3 w-3" />
               <span className="font-mono truncate">{backupsDir}</span>
             </p>
+          </Section>
+
+          {/* ssh_config integration — sync saved sessions to ~/.ssh/config */}
+          <Section title="ssh_config">
+            <div className="rounded-xl border p-3" style={{ borderColor: "var(--border)" }}>
+              <div className="flex items-start gap-3">
+                <div className="flex h-9 w-9 items-center justify-center rounded-lg shrink-0" style={{ background: "color-mix(in srgb, var(--accent) 10%, transparent)", color: "var(--accent)" }}>
+                  <FileCode className="h-4 w-4" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-[14px] font-semibold" style={{ color: "var(--foreground)" }}>Sync to ~/.ssh/config</p>
+                  <p className="text-[12px] mt-0.5" style={{ color: "var(--muted-fg)" }}>
+                    Write Host blocks for every saved session, with <span className="font-mono">UseKeychain&nbsp;yes</span> on password-auth profiles so macOS Keychain remembers each password (Touch ID supplies it on subsequent connections). Idempotent — your edits outside the markers are preserved.
+                  </p>
+                  {sshConfigStatus && (
+                    <p className="text-[11px] mt-1.5 font-mono" style={{ color: "var(--subtle-fg)" }}>
+                      {sshConfigStatus.fileExists
+                        ? sshConfigStatus.managedBlockPresent
+                          ? `${sshConfigStatus.managedBlockHostCount} hosts in block · last sync: ${sshConfigStatus.managedBlockGeneratedAt ?? "unknown"}`
+                          : "file exists, no managed block yet"
+                        : "no ~/.ssh/config yet — will be created"}
+                    </p>
+                  )}
+                </div>
+              </div>
+              <div className="flex gap-1.5 mt-3">
+                <Button
+                  size="sm"
+                  onClick={syncSshConfig}
+                  disabled={sshConfigBusy}
+                  style={{ background: "var(--accent)", color: "var(--accent-foreground)", border: "none" }}
+                >
+                  <RefreshCw className={`h-3 w-3 mr-1 ${sshConfigBusy ? "animate-spin" : ""}`} />
+                  {sshConfigBusy ? "Working…" : "Sync now"}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setSshConfigPreviewOpen(v => !v)}
+                  disabled={sshConfigBusy}
+                >
+                  <Eye className="h-3 w-3 mr-1" />
+                  {sshConfigPreviewOpen ? "Hide preview" : "Preview"}
+                </Button>
+                {sshConfigStatus?.managedBlockPresent && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={removeSshConfigBlock}
+                    disabled={sshConfigBusy}
+                    style={{ color: "var(--destructive)" }}
+                  >
+                    <Eraser className="h-3 w-3 mr-1" />
+                    Remove block
+                  </Button>
+                )}
+              </div>
+              {sshConfigPreviewOpen && sshConfigStatus && (
+                <pre className="mt-3 p-2 rounded-lg text-[11px] font-mono overflow-auto max-h-64 whitespace-pre" style={{
+                  background: "color-mix(in srgb, var(--fg) 4%, transparent)",
+                  border: "1px solid var(--border)",
+                  color: "var(--muted-fg)",
+                }}>
+                  {sshConfigStatus.preview || "(no sessions to emit)"}
+                </pre>
+              )}
+            </div>
           </Section>
 
           {/* Audit log — sensitive operations recorded by the app */}
