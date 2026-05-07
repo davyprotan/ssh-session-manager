@@ -2,6 +2,16 @@
 
 All notable changes to **SSH Manager**.
 
+## [0.8.3] — 2026-05-07
+
+### Hotfix: CSP `script-src` was too strict for Next.js App Router
+
+**Symptom:** in the production build, the page rendered but **buttons didn't respond** — the UI was effectively a static screenshot.
+
+**Cause:** v0.8.0 set `script-src 'self'`. Next.js App Router emits inline `<script>(self.__next_f=…).push(…)</script>` tags for streaming hydration data; with strict `'self'` they're CSP-blocked, so React never hydrates and event handlers never attach. Dev mode wasn't affected because Next dev injects scripts via `<script src=>` instead of inline.
+
+**Fix:** allow `'unsafe-inline'` on `script-src` (and keep it on `style-src`, where it was already required by Tailwind / next/font). Documented the trade-off in `next.config.ts` — the proper long-term hardening is per-request nonces via middleware, but for a 127.0.0.1-bound Electron app where all HTML comes from this server's own bundle and we never render user-supplied content as raw HTML, the threat `'unsafe-inline'` re-exposes (injected `<script>` tags) is already out-of-threat-model. The remaining CSP directives (`default-src 'self'`, `connect-src 'self'`, `frame-ancestors 'none'`, `object-src 'none'`, etc.) continue to bound the renderer.
+
 ## [0.8.2] — 2026-05-07
 
 ### Fix passwordless-setup: tilde expansion + sandboxing on `ssh-copy-id`
