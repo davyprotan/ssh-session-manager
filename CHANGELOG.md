@@ -2,6 +2,30 @@
 
 All notable changes to **SSH Manager**.
 
+## [0.9.2] — 2026-05-07
+
+### Quick Connect: probe-first, click-to-connect
+
+Termius-style flow:
+
+1. **Type the host + (optional) port → Enter** (or click Check). The app does a TCP-connect probe so you find out *before* picking credentials whether the host is reachable
+2. **Reachable** → profile cards appear; **clicking a profile connects immediately** (no second button press). If the server returned a banner (`SSH-2.0-OpenSSH_…`) it's shown above the cards
+3. **Unreachable** → friendly error message ("Connection refused — the port is closed", "Host unreachable — no route", etc.) with Edit-host / Try-again buttons
+
+#### New
+- `POST /api/probe` — origin-guarded TCP probe. Validates host against the existing safe-character regex; clamps timeout to 0.5–8 s (default 3 s); waits up to 800 ms after connect for an SSH/Telnet/whatever banner so the UI can show what's listening
+- `src/lib/probe.ts` — extracted the TCP probe core for testing
+- `src/lib/probe.test.ts` — 5 new tests against a real local TCP listener (banner / silent / ECONNREFUSED / unreachable IP / ENOTFOUND)
+
+#### UX changes
+- Profile picker is **click-to-connect** in Quick Connect; no separate Connect button. The "Suggested" badge from v0.8.5's hostname-pattern matcher still highlights the most likely profile
+- Set-up-passwordless shortcut moved to a small inline button on each password-auth card (was a bottom-right Footer button)
+- Save-as-session toggle remains visible on both steps; tick it before clicking a profile and the session gets saved+connected in one action
+- The legacy "type host → pre-select profile → click Connect" flow is gone — there was no version of it anyone preferred
+
+#### Tests
+**119 across 10 files** (was 114 across 9). All v0.9.x flows still tested.
+
 ## [0.9.1] — 2026-05-07
 
 ### Quick Connect now uses the built-in terminal
