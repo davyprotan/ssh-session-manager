@@ -1,10 +1,16 @@
 const { app, BrowserWindow, shell, Menu } = require('electron');
 const path = require('path');
+const crypto = require('crypto');
 const { spawn } = require('child_process');
 const http = require('http');
+const ptyManager = require('./pty-manager');
 
 const APP_PORT = 3005;
 const APP_URL = `http://127.0.0.1:${APP_PORT}`;
+
+// Random per-launch token gating /api/_internal/* routes (e.g. spawn-plan).
+// Generated here, passed to Next.js via env, never sent to the renderer.
+const INTERNAL_TOKEN = crypto.randomBytes(32).toString('hex');
 
 let mainWindow = null;
 let serverProcess = null;
@@ -58,7 +64,12 @@ function startServer() {
 
     serverProcess = spawn(serverExecPath, [nextBin, 'start', '-p', String(APP_PORT), '-H', '127.0.0.1'], {
       cwd: appRoot,
-      env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', NODE_ENV: 'production' },
+      env: {
+        ...process.env,
+        ELECTRON_RUN_AS_NODE: '1',
+        NODE_ENV: 'production',
+        SSH_MANAGER_INTERNAL_TOKEN: INTERNAL_TOKEN,
+      },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
   } else {
@@ -71,7 +82,11 @@ function startServer() {
     const npmBin = process.platform === 'win32' ? 'npm.cmd' : 'npm';
     serverProcess = spawn(npmBin, ['start'], {
       cwd: projectRoot,
-      env: { ...process.env, NODE_ENV: 'production' },
+      env: {
+        ...process.env,
+        NODE_ENV: 'production',
+        SSH_MANAGER_INTERNAL_TOKEN: INTERNAL_TOKEN,
+      },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
   }
@@ -112,6 +127,8 @@ function createWindow() {
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
+      preload: path.join(__dirname, 'preload.js'),
+      sandbox: false,
     },
   });
 
@@ -130,7 +147,11 @@ function createWindow() {
     return { action: 'allow' };
   });
 
+  // When this window closes, kill any ptys it owned so we don't leak ssh
+  // children. ptyManager tracks ownership by BrowserWindow.id.
+  const winId = mainWindow.id;
   mainWindow.on('closed', () => {
+    try { ptyManager.killAllOwnedBy(winId); } catch { /* ignore */ }
     mainWindow = null;
   });
 }
@@ -145,6 +166,14 @@ app.whenReady().then(async () => {
       { role: 'windowMenu' },
     ]));
   }
+
+  // Register the SSH-pty IPC handlers BEFORE the window opens, so the
+  // renderer can call open() during page load if it wants to.
+  ptyManager.register({
+    appUrl: APP_URL,
+    internalToken: INTERNAL_TOKEN,
+    // Phase-2 hooks (audit + onPtyData) are added later in this file.
+  });
 
   // Start server if not already running, then show window
   const alreadyUp = await isServerUp();
@@ -169,7 +198,11 @@ app.on('window-all-closed', () => {
 });
 
 app.on('before-quit', () => {
+  try { ptyManager.killAll(); } catch { /* ignore */ }
   killServer();
 });
 
-process.on('exit', killServer);
+process.on('exit', () => {
+  try { ptyManager.killAll(); } catch { /* ignore */ }
+  killServer();
+});

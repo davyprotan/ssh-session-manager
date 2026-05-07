@@ -2,7 +2,7 @@
 
 import { Badge } from "@/components/ui/badge";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { Terminal, Key, Lock, MoreVertical, Pencil, Trash2, Copy, Clock, UserRound, ShieldCheck, Files, Network, FolderClosed, KeyRound } from "lucide-react";
+import { Terminal, Key, Lock, MoreVertical, Pencil, Trash2, Copy, Clock, UserRound, ShieldCheck, Files, Network, FolderClosed, KeyRound, AppWindow } from "lucide-react";
 import { COLOR_HEX, type ProfileColor } from "@/lib/profile-colors";
 import type { Session } from "@/lib/types";
 import { toast } from "sonner";
@@ -14,6 +14,8 @@ interface Props {
   onConnect: (s: Session) => void;
   onClone: (s: Session) => void;
   onSetupPasswordless?: (s: Session) => void;
+  /** When provided, "Open in built-in terminal" appears in the menu. */
+  onOpenInTerminal?: (s: Session) => void;
 }
 
 function timeAgo(dateStr: string | null): string {
@@ -27,7 +29,7 @@ function timeAgo(dateStr: string | null): string {
   return `${Math.floor(h / 24)}d ago`;
 }
 
-export default function SessionCard({ session, onEdit, onDelete, onConnect, onClone, onSetupPasswordless }: Props) {
+export default function SessionCard({ session, onEdit, onDelete, onConnect, onClone, onSetupPasswordless, onOpenInTerminal }: Props) {
   const tags: string[] = JSON.parse(session.tags || "[]");
   const accent = session.profile_color ? COLOR_HEX[session.profile_color as ProfileColor] || COLOR_HEX.cyan : COLOR_HEX.cyan;
 
@@ -77,8 +79,13 @@ export default function SessionCard({ session, onEdit, onDelete, onConnect, onCl
               <MoreVertical className="h-3.5 w-3.5" />
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="min-w-44">
+              {onOpenInTerminal && (
+                <DropdownMenuItem onClick={() => onOpenInTerminal(session)}>
+                  <Terminal className="h-3.5 w-3.5 mr-2" style={{ color: accent }} /> Open in built-in terminal
+                </DropdownMenuItem>
+              )}
               <DropdownMenuItem onClick={() => onConnect(session)}>
-                <Terminal className="h-3.5 w-3.5 mr-2" style={{ color: accent }} /> Connect
+                <AppWindow className="h-3.5 w-3.5 mr-2" /> {onOpenInTerminal ? "Open in iTerm / Terminal.app" : "Connect"}
               </DropdownMenuItem>
               <DropdownMenuItem onClick={copyCommand}>
                 <Copy className="h-3.5 w-3.5 mr-2" /> Copy SSH command
@@ -170,7 +177,7 @@ export default function SessionCard({ session, onEdit, onDelete, onConnect, onCl
             {timeAgo(session.last_connected_at)}
           </div>
           <button
-            onClick={() => onConnect(session)}
+            onClick={() => (onOpenInTerminal ? onOpenInTerminal(session) : onConnect(session))}
             className="flex items-center gap-1.5 text-[12.5px] font-semibold rounded-lg px-3 py-1.5 transition-all duration-150"
             style={{ background: `${accent}1a`, color: accent, border: `1px solid ${accent}40` }}
             onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = `${accent}33`; }}

@@ -2,6 +2,61 @@
 
 All notable changes to **SSH Manager**.
 
+## [0.9.0] — 2026-05-07
+
+### Built-in terminal — Termius-style smooth connect, password fatigue gone
+
+The big one. Click a session card → an in-app terminal pane slides up from the bottom, the connection happens *inside the app*, and the stored password (if any) is auto-typed for you when ssh asks. Works for everything that accepts password auth — including Arista, ADVA, Cisco, Juniper switches/routers where macOS's `UseKeychain yes` doesn't help (that directive only handles SSH key passphrases, not server passwords).
+
+#### What's new
+
+- **`Open in built-in terminal`** menu item on every session card. Becomes the default action when running in the desktop app — clicking the green Connect button opens a pane instead of launching iTerm. The legacy "Open in iTerm / Terminal.app" path is preserved as a menu item if you'd rather use your real terminal
+- **Tabbed pane** at the bottom of the dashboard with a connect-status pill (`connecting` / `connected` / `exited`/`error`), per-tab close button, "Close all", and a collapse toggle
+- **Auto-password fill** with strict safety guards (see Security below). Toggle in Settings → Built-in terminal
+- **xterm.js renderer** with the Canvas addon for performance, 5,000 lines of scrollback, JetBrains-Mono monospaced font, dark theme matched to the app
+
+#### Architecture (new infrastructure)
+
+This is the first feature that uses real Electron IPC — until now everything went through the Next.js HTTP server. Adds:
+
+- `electron/preload.js` — first preload script. Exposes a tiny typed `window.sshTerm` API to the renderer via `contextBridge`. Never leaks `ipcRenderer` or Node primitives
+- `electron/pty-manager.js` — main-process pty lifecycle. Owns `Map<handle, ownerWindowId>`, validates ownership on every IPC call, kills owned ptys on window-close, caps concurrent terminals per window
+- `electron/lib/prompt-detector.js` — CommonJS twin of `src/lib/prompt-detector.ts`, drift-tested by `prompt-detector-drift.test.ts` so the two implementations stay in lockstep
+- `SSH_MANAGER_INTERNAL_TOKEN` — per-launch random 32-byte token generated in main, passed to the Next.js server via env, used in `x-internal-token` header for routes that should *never* be reachable from the renderer. The renderer has no way to obtain this token. New helper `assertInternal(req)` in `api-guard.ts` (constant-time-ish compare)
+- `GET /api/sessions/[id]/spawn-plan` — internal-only, returns the validated argv from `buildSshArgs` so main never has to duplicate that logic
+- `GET /api/profiles/[id]/internal-secret` — internal-only, pulls a stored password/passphrase from the OS keychain on demand for auto-injection
+
+#### Security model — auto-password specifics
+
+False positives matter. Auto-injecting a password into the wrong context can leak it. So:
+
+- **Strict prompt match** against the *last non-empty line* of recent output, after stripping ANSI escapes. Won't trigger on `Password:` substrings mid-line, in command output, or in man pages
+- **MFA / OTP context detection** — if any of `verification code`, `one-time code/password`, `OTP`, `2fa code`, `Duo push/prompt`, `Authy`, `YubiKey`, `RSA token`, `push notification`, or `enter the code` appears in the recent tail, **auto-fill is disabled for the entire session** — better safe than sorry
+- **yes/no prompt blacklist** — never auto-fill at `(yes/no)?` or `(yes/no/[fingerprint])?` prompts (host-key acceptance, sudo confirmations)
+- **One injection per session** — if the first try is wrong, the user types the second one themselves. Stops re-injection of stale credentials and avoids account lockouts
+- **Audit-log only the event**, never the secret. Three new events: `terminal.password_injected` / `terminal.password_fetched` / `terminal.autofill_skipped` (with reason)
+- **No console logging** of the password. JS strings can't be wiped post-use, but we drop the only reference (`secret = null`) so it can be GC'd
+
+23 new tests in `src/lib/prompt-detector.test.ts` cover OpenSSH / Arista / Cisco / uppercase / ANSI-coloured / Duo / YubiKey / 2FA / yes-no / mid-line / shell-prompt cases. Plus the cross-implementation drift test.
+
+#### Pty / IPC trust boundary
+
+- The renderer **never supplies command strings**. It supplies a numeric session_id; main fetches the validated argv from the spawn-plan endpoint
+- `node-pty.spawn(file, args, opts)` — args as `string[]`, no shell, every element type-checked
+- PTY handles are server-issued opaque integers. Renderer can't write to a handle it didn't receive from `open()` (ownership map keyed on `BrowserWindow.id`)
+- Output forwarded as `Buffer` (becomes `Uint8Array` in the renderer); xterm.js handles UTF-8 decoding
+- `RING_BUFFER_BYTES = 64 KB` cap; `MAX_SESSIONS_PER_WINDOW = 16` cap; `PROMPT_TAIL_BYTES = 4 KB` for prompt-detection state
+
+#### Tests
+
+**114 tests across 9 files** (was 89 across 7). New: `prompt-detector.test.ts` (23 cases), `prompt-detector-drift.test.ts` (drift detection, 2 grouped cases × 15 fixtures).
+
+#### Limits / known caveats
+
+- The built-in terminal requires the Electron desktop app. In plain browser dev mode (`npm run dev` then opening `http://127.0.0.1:3005` in Safari/Chrome), the menu item is hidden and the legacy iTerm flow is used
+- Pty isolation is per-window only. If you open the app twice (two `BrowserWindow` instances), each window only sees its own ptys
+- node-pty native binding is rebuilt for Electron during `npm run electron:mac` via `@electron/rebuild`. If you build on a fresh machine and the rebuild fails, ptys won't open and you'll see "node-pty unavailable on this platform" — the rest of the app still works
+
 ## [0.8.5] — 2026-05-07
 
 ### Auto-suggest the right profile when adding a new session

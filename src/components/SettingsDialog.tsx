@@ -8,8 +8,10 @@ import { Label } from "@/components/ui/label";
 import {
   FileText, Download, Upload, Settings as SettingsIcon, FolderInput,
   ShieldCheck, Lock, Database, RotateCcw, Trash2, AlertCircle, Eye, EyeOff,
-  Activity, FileCode, RefreshCw, Eraser,
+  Activity, FileCode, RefreshCw, Eraser, Terminal as TerminalIcon, KeyRound,
 } from "lucide-react";
+
+const AUTO_FILL_KEY = "ssh-manager-autofill-enabled";
 import { toast } from "sonner";
 
 interface BackupInfo {
@@ -73,6 +75,21 @@ export default function SettingsDialog({ open, onClose, onChanged, onOpenSshImpo
   const [sshConfigStatus, setSshConfigStatus] = useState<SshConfigStatus | null>(null);
   const [sshConfigBusy, setSshConfigBusy] = useState(false);
   const [sshConfigPreviewOpen, setSshConfigPreviewOpen] = useState(false);
+
+  const [autoFillEnabled, setAutoFillEnabled] = useState(true);
+
+  useEffect(() => {
+    if (!open) return;
+    try {
+      const v = localStorage.getItem(AUTO_FILL_KEY);
+      setAutoFillEnabled(v === null ? true : v === "true");
+    } catch { /* ignore */ }
+  }, [open]);
+
+  function persistAutoFill(v: boolean) {
+    setAutoFillEnabled(v);
+    try { localStorage.setItem(AUTO_FILL_KEY, String(v)); } catch { /* ignore */ }
+  }
 
   async function fetchBackups() {
     const res = await fetch("/api/backup/list");
@@ -464,6 +481,40 @@ export default function SettingsDialog({ open, onClose, onChanged, onOpenSshImpo
                   {sshConfigStatus.preview || "(no sessions to emit)"}
                 </pre>
               )}
+            </div>
+          </Section>
+
+          {/* Built-in terminal — auto-password toggle + behavioural notes */}
+          <Section title="Built-in terminal">
+            <div className="rounded-xl border p-3" style={{ borderColor: "var(--border)" }}>
+              <div className="flex items-start gap-3">
+                <div className="flex h-9 w-9 items-center justify-center rounded-lg shrink-0" style={{ background: "color-mix(in srgb, var(--accent) 10%, transparent)", color: "var(--accent)" }}>
+                  <KeyRound className="h-4 w-4" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-[14px] font-semibold" style={{ color: "var(--foreground)" }}>Auto-fill stored passwords</p>
+                    <button
+                      onClick={() => persistAutoFill(!autoFillEnabled)}
+                      role="switch"
+                      aria-checked={autoFillEnabled}
+                      className="relative inline-flex h-5 w-9 items-center rounded-full transition-colors"
+                      style={{ background: autoFillEnabled ? "var(--accent)" : "color-mix(in srgb, var(--fg) 18%, transparent)" }}
+                    >
+                      <span className="inline-block h-4 w-4 rounded-full bg-white transition-transform" style={{
+                        transform: autoFillEnabled ? "translateX(18px)" : "translateX(2px)",
+                      }} />
+                    </button>
+                  </div>
+                  <p className="text-[12px] mt-0.5" style={{ color: "var(--muted-fg)" }}>
+                    When the built-in terminal sees a password or passphrase prompt, it pulls the secret from the OS keychain and types it for you. <strong>Never</strong> auto-fills when an MFA / OTP / yes-no prompt is detected, and only injects once per session — if the first try fails you&apos;ll always type the next yourself.
+                  </p>
+                </div>
+              </div>
+              <p className="text-[11px] flex items-center gap-1.5 pt-3" style={{ color: "var(--subtle-fg)" }}>
+                <TerminalIcon className="h-3 w-3" />
+                Open a session via its card → <span className="font-mono">Open in built-in terminal</span>.
+              </p>
             </div>
           </Section>
 
