@@ -24,6 +24,8 @@ const eslintConfig = defineConfig([
     "next-env.d.ts",
     // CommonJS Node entrypoint — uses require() by design.
     "electron/**",
+    // electron-builder packaged outputs (contain copies of compiled .next/**).
+    "dist/**",
   ]),
 ]);
 
