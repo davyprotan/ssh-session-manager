@@ -146,3 +146,24 @@
     background: var(--muted-fg);
   }
 }
+
+/* Electron-only: opt-in drag region for the app header so macOS knows
+   what to treat as the title bar (window drag + double-click-to-zoom).
+   Interactive children (buttons / inputs / links / role-button) stay
+   clickable thanks to the no-drag override. CSS is harmless in plain
+   browser dev mode (the property is ignored). */
+.app-drag-region {
+  -webkit-app-region: drag;
+  app-region: drag;
+}
+.app-drag-region button,
+.app-drag-region input,
+.app-drag-region select,
+.app-drag-region textarea,
+.app-drag-region a,
+.app-drag-region [role="button"],
+.app-drag-region [role="combobox"],
+.app-drag-region .app-no-drag {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
