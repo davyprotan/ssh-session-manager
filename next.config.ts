@@ -1,11 +1,21 @@
 import type { NextConfig } from "next";
 
 // Defense-in-depth CSP. The renderer only ever loads this app's own assets and talks to
-// its own /api/* endpoints, so 'self' suffices for everything except styles (Tailwind /
-// next/font inject inline <style> at runtime).
+// its own /api/* endpoints, so `'self'` covers nearly everything.
+//
+// `'unsafe-inline'` is required on `script-src` because Next.js App Router emits inline
+// `<script>(self.__next_f=...).push(...)</script>` tags for streaming hydration data;
+// without it the page renders but is non-interactive (buttons don't respond). Same goes
+// for inline `<style>` tags injected by Tailwind / next/font. The proper hardening is
+// per-request nonces via middleware, but for a 127.0.0.1-bound Electron app where:
+//   - all HTML comes from this server's own bundle,
+//   - the renderer is contextIsolated and nodeIntegration=false,
+//   - we never render user-supplied content as raw HTML,
+// the threat that `'unsafe-inline'` exposes (XSS injecting <script>) is already
+// out-of-model. The remaining directives still meaningfully bound the renderer.
 const CSP = [
   "default-src 'self'",
-  "script-src 'self'",
+  "script-src 'self' 'unsafe-inline'",
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob:",
   "font-src 'self' data:",
