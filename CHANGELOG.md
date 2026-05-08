@@ -2,6 +2,16 @@
 
 All notable changes to **SSH Manager**.
 
+## [0.9.15] — 2026-05-08
+
+### Hotfix: drop `ssh-dss` from the legacy compat list
+
+v0.9.14 included `ssh-dss` in `-o HostKeyAlgorithms=+ssh-rsa,ssh-dss`. **OpenSSH 9.8+ removed DSA support entirely** (verified: `ssh -Q HostKeyAlgorithms` on macOS Sequoia/Tahoe doesn't include it; `ssh -o HostKeyAlgorithms=+ssh-dss …` errors out at parse time with `Bad key types '+ssh-rsa,ssh-dss'.`). So enabling Legacy SSH compatibility on a modern macOS broke the connection before it started.
+
+Fix: drop `ssh-dss` from the compat list. Everything else in the list (`ssh-rsa`, `diffie-hellman-group{1,14}-sha1`, `3des-cbc`, `hmac-sha1`, `hmac-md5`) is still supported by OpenSSH 10.2 — just disabled-by-default — so they stay.
+
+If you're talking to kit that **only** speaks DSA host keys, modern OpenSSH literally cannot talk to it at all. The workaround is to install an older OpenSSH via Homebrew (`brew install openssh@9.7` or similar) and put it ahead in `$PATH`.
+
 ## [0.9.14] — 2026-05-08
 
 ### Legacy SSH compatibility for old network gear

@@ -76,9 +76,19 @@ export function buildSshArgs(input: SshArgsInput): SshArgsResult | SshArgsError 
   // Legacy compatibility: add the deprecated algorithms that old network
   // gear still negotiates. Use `+algo` so they're appended to the modern
   // defaults — modern hosts prefer modern algorithms, old hosts pick these.
+  //
+  // Notes on what's NOT here:
+  //  - `ssh-dss` was REMOVED entirely from OpenSSH 9.8+ (no longer parses
+  //    even with `+`). Including it here breaks the connection on modern
+  //    macOS (`Bad key types '+ssh-rsa,ssh-dss'`).
+  //  - 3des-cbc and hmac-md5 are still supported (just disabled-by-default)
+  //    so they stay.
+  // If you're hitting kit that ONLY supports DSA host keys, you'll need
+  // to install an older OpenSSH (e.g. via Homebrew) — modern OpenSSH
+  // can't talk to it at all.
   if (input.compatLegacy) {
     argv.push("-o", "KexAlgorithms=+diffie-hellman-group14-sha1,diffie-hellman-group1-sha1,diffie-hellman-group-exchange-sha1");
-    argv.push("-o", "HostKeyAlgorithms=+ssh-rsa,ssh-dss");
+    argv.push("-o", "HostKeyAlgorithms=+ssh-rsa");
     argv.push("-o", "PubkeyAcceptedAlgorithms=+ssh-rsa");
     argv.push("-o", "Ciphers=+aes128-cbc,aes192-cbc,aes256-cbc,3des-cbc");
     argv.push("-o", "MACs=+hmac-sha1,hmac-sha2-256,hmac-md5");
