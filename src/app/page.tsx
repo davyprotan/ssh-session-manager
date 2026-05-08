@@ -17,6 +17,7 @@ import SettingsDialog from "@/components/SettingsDialog";
 import ImportSshConfigDialog from "@/components/ImportSshConfigDialog";
 import HistoryRow from "@/components/HistoryRow";
 import SetupPasswordlessDialog from "@/components/SetupPasswordlessDialog";
+import WelcomeDialog from "@/components/WelcomeDialog";
 import dynamic from "next/dynamic";
 import type { OpenTerminal } from "@/components/TerminalPane";
 import CompactSessionList from "@/components/CompactSessionList";
@@ -30,6 +31,7 @@ const LAYOUT_KEY = "ssh-manager-layout";
 const SIDEBAR_WIDTH_KEY = "ssh-manager-sidebar-width";
 const SIDEBAR_COLLAPSED_KEY = "ssh-manager-sidebar-collapsed";
 const DEFAULT_SIDEBAR_WIDTH = 300;
+const ONBOARDED_KEY = "ssh-manager-onboarded";
 import { toast } from "sonner";
 import type { Session, Profile, Folder, HistoryEntry } from "@/lib/types";
 import { COLOR_HEX, type ProfileColor } from "@/lib/profile-colors";
@@ -56,6 +58,23 @@ export default function Home() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [sshImportOpen, setSshImportOpen] = useState(false);
   const [passwordlessTarget, setPasswordlessTarget] = useState<Session | null>(null);
+  // First-launch welcome dialog (one-time). Defaults closed; opened in an
+  // effect once we've checked localStorage on the client.
+  const [welcomeOpen, setWelcomeOpen] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    void Promise.resolve().then(() => {
+      if (cancelled) return;
+      try {
+        if (localStorage.getItem(ONBOARDED_KEY) !== "true") setWelcomeOpen(true);
+      } catch { /* ignore */ }
+    });
+    return () => { cancelled = true; };
+  }, []);
+  const dismissWelcome = useCallback(() => {
+    setWelcomeOpen(false);
+    try { localStorage.setItem(ONBOARDED_KEY, "true"); } catch { /* ignore */ }
+  }, []);
 
   const [deleteTarget, setDeleteTarget] = useState<{ type: "session" | "profile"; id: number; name: string } | null>(null);
 
@@ -669,6 +688,8 @@ export default function Home() {
         profile={passwordlessTarget ? profiles.find(p => p.id === passwordlessTarget.profile_id) ?? null : null}
         onDone={() => { fetchProfiles(); fetchSessions(); }}
       />
+
+      <WelcomeDialog open={welcomeOpen} onClose={dismissWelcome} />
 
       <AlertDialog open={!!deleteTarget} onOpenChange={open => !open && setDeleteTarget(null)}>
         <AlertDialogContent style={{ background: "var(--card)", borderColor: "var(--border)" }}>
