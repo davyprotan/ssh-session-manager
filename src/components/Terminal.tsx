@@ -22,10 +22,18 @@ import "@xterm/xterm/css/xterm.css";
 import { Loader2, AlertCircle, Terminal as TerminalIcon, X } from "lucide-react";
 
 const AUTO_FILL_KEY = "ssh-manager-autofill-enabled";
+const COPY_ON_SELECT_KEY = "ssh-manager-copy-on-select";
 
 function getAutoFillSetting(): boolean {
   try {
     const v = localStorage.getItem(AUTO_FILL_KEY);
+    return v === null ? true : v === "true";
+  } catch { return true; }
+}
+
+function getCopyOnSelectSetting(): boolean {
+  try {
+    const v = localStorage.getItem(COPY_ON_SELECT_KEY);
     return v === null ? true : v === "true";
   } catch { return true; }
 }
@@ -107,6 +115,23 @@ export default function Terminal({ target, label, onExit, onClose }: Props) {
     xtermRef.current = term;
     fitRef.current = fit;
 
+    // Copy-on-select: when the user releases the mouse and there's a
+    // non-empty selection, write it to the clipboard. Mouseup is the right
+    // anchor (not onSelectionChange) so we don't pound the clipboard while
+    // the user is still dragging. Cmd+C still works because the selection
+    // remains until the user clicks elsewhere.
+    const onMouseUp = () => {
+      if (!getCopyOnSelectSetting()) return;
+      const sel = term.getSelection();
+      if (!sel) return;
+      try {
+        // navigator.clipboard.writeText is async; ignore failures (e.g. when
+        // the renderer doesn't have focus on macOS — Cmd+C still works).
+        void navigator.clipboard.writeText(sel);
+      } catch { /* ignore */ }
+    };
+    containerRef.current.addEventListener("mouseup", onMouseUp);
+
     // Initial fit + initial connect.
     fit.fit();
     const cols = term.cols;
@@ -181,10 +206,12 @@ export default function Terminal({ target, label, onExit, onClose }: Props) {
     });
     ro.observe(containerRef.current);
 
+    const cleanupContainer = containerRef.current;
     return () => {
       aborted = true;
       ro.disconnect();
       cancelAnimationFrame(raf);
+      cleanupContainer?.removeEventListener("mouseup", onMouseUp);
       for (const off of unsubsRef.current) {
         try { off(); } catch { /* ignore */ }
       }
