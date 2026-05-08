@@ -36,15 +36,21 @@ export function getDb(): Database.Database {
   _db.pragma('journal_mode = WAL');
   _db.pragma('foreign_keys = ON');
   migrate(_db);
-  // Kick off the async post-migration that moves any leftover plaintext
-  // passwords into the OS keychain. Fire-and-forget — if it fails the rows
-  // remain as-is and we'll try again next startup.
+  // Kick off the async post-migrations:
+  //   1. plaintext → keychain (legacy v0.7.x rows still in the password col)
+  //   2. relink orphaned keychain entries (v0.9.x PUT bug zeroed uses_keychain
+  //      when users edited profiles without re-typing the password)
+  // Both are idempotent and fire-and-forget. If they fail the row stays as
+  // it is and we'll try again on next launch.
   if (!_deferredKicked) {
     _deferredKicked = true;
     queueMicrotask(() => {
-      void migratePlaintextPasswordsToKeychain().catch((e) =>
-        console.warn('plaintext→keychain migration failed:', e),
-      );
+      void (async () => {
+        try { await migratePlaintextPasswordsToKeychain(); }
+        catch (e) { console.warn('plaintext→keychain migration failed:', e); }
+        try { await relinkOrphanedKeychainProfiles(); }
+        catch (e) { console.warn('keychain relink failed:', e); }
+      })();
     });
   }
   return _db;
@@ -238,6 +244,59 @@ async function migratePlaintextPasswordsToKeychain(): Promise<void> {
 
   if (migrated > 0) {
     console.log(`[ssh-manager] migrated ${migrated} plaintext password(s) into the OS keychain`);
+  }
+}
+
+/**
+ * Re-attach the keychain link for any profile where:
+ *   - auth_type implies a stored secret (password or key_with_passphrase)
+ *   - uses_keychain == 0 in the DB
+ *   - password column is null/empty (so there's nothing to "use" if we left
+ *     uses_keychain at 0)
+ *   - BUT the keychain still has an entry for that profile_id
+ *
+ * That state is the orphan footprint of a v0.9.x bug in PUT /api/profiles
+ * where editing a profile without re-typing the password silently flipped
+ * uses_keychain to 0. Auto-fill then can't find the secret. Re-running this
+ * after the bug is fixed re-attaches the link without any user action.
+ */
+async function relinkOrphanedKeychainProfiles(): Promise<void> {
+  if (!_db) return;
+  const { getPassword: kcGet, isAvailable: kcAvailable } = await import('./keychain');
+  if (!(await kcAvailable())) return;
+
+  const rows = _db
+    .prepare(`
+      SELECT id, name FROM profiles
+      WHERE (auth_type = 'password' OR auth_type = 'key_with_passphrase')
+        AND (uses_keychain IS NULL OR uses_keychain = 0)
+        AND (password IS NULL OR password = '')
+    `)
+    .all() as Array<{ id: number; name: string }>;
+  if (rows.length === 0) return;
+
+  const { audit } = await import('./audit');
+  let relinked = 0;
+
+  for (const r of rows) {
+    try {
+      const stored = await kcGet(r.id);
+      if (!stored) continue;
+      _db.prepare('UPDATE profiles SET uses_keychain = 1 WHERE id = ?').run(r.id);
+      audit({
+        event: 'profile.keychain_relinked',
+        target_type: 'profile',
+        target_id: r.id,
+        target_label: r.name,
+      });
+      relinked++;
+    } catch (e) {
+      console.warn(`failed to relink profile ${r.id} (${r.name}) to keychain:`, e);
+    }
+  }
+
+  if (relinked > 0) {
+    console.log(`[ssh-manager] re-linked ${relinked} profile(s) to existing keychain entries`);
   }
 }
 

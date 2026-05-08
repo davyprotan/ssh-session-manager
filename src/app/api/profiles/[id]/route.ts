@@ -29,23 +29,43 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   }
 
   const db = getDb();
-  const hasSecret = !!input.password;
+  const hasNewSecret = !!input.password;
   const usesSecret = input.auth_type === 'password' || input.auth_type === 'key_with_passphrase';
 
   // Refuse to store secrets in plaintext — require the OS keychain.
-  if (usesSecret && hasSecret && !(await kcAvailable())) {
+  if (usesSecret && hasNewSecret && !(await kcAvailable())) {
     return NextResponse.json(
       { error: 'OS keychain is unavailable. Refusing to store the password in plaintext. Please ensure Keychain (macOS) / Credential Vault (Windows) / libsecret (Linux) is reachable and try again.' },
       { status: 503 },
     );
   }
-  const useKeychain = usesSecret && hasSecret;
 
-  // If a new secret was provided, write it to the keychain BEFORE updating the
-  // database, so a failing keychain write doesn't leave us with a row that
-  // claims `uses_keychain=1` but has no entry to read.
-  if (useKeychain && input.password) {
-    const ok = await kcSet(idNum, input.password);
+  // Look up the existing row so we can preserve the keychain link when the
+  // user edits a profile WITHOUT re-typing the password. Previously this
+  // handler always set `uses_keychain` based purely on whether a fresh
+  // password was supplied — so editing any other field (e.g. flipping
+  // `compat_legacy`) clobbered the link to 0 and silently broke auto-fill.
+  const existing = db.prepare('SELECT uses_keychain, password FROM profiles WHERE id = ?').get(idNum) as
+    | { uses_keychain: number; password: string | null }
+    | undefined;
+  if (!existing) return NextResponse.json({ error: 'invalid request' }, { status: 400 });
+
+  // If the user typed a NEW password, that's an explicit re-keying.
+  // Otherwise, preserve whatever the row already had.
+  let nextUsesKeychain: number;
+  if (!usesSecret) {
+    nextUsesKeychain = 0;             // auth_type changed away from password/passphrase
+  } else if (hasNewSecret) {
+    nextUsesKeychain = 1;             // new secret will be written to keychain
+  } else {
+    nextUsesKeychain = existing.uses_keychain; // keep the existing link
+  }
+
+  // If a new secret was provided, write it to the keychain BEFORE updating
+  // the database, so a failing keychain write doesn't leave us with a row
+  // that claims `uses_keychain=1` but has no entry to read.
+  if (usesSecret && hasNewSecret) {
+    const ok = await kcSet(idNum, input.password!);
     if (!ok) {
       return NextResponse.json(
         { error: 'Keychain write failed. The profile was not updated.' },
@@ -68,7 +88,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       null,
       input.key_path, input.port, input.color, input.is_default,
       input.agent_forwarding, input.compression, input.server_alive_interval, input.extra_args,
-      useKeychain ? 1 : 0,
+      nextUsesKeychain,
       input.compat_legacy,
       idNum,
     );

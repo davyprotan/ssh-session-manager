@@ -2,6 +2,37 @@
 
 All notable changes to **SSH Manager**.
 
+## [0.9.16] — 2026-05-08
+
+### Fix: editing a profile no longer breaks its keychain link
+
+#### The bug
+`PUT /api/profiles/[id]` set `uses_keychain` based purely on whether the request body included a password (`useKeychain = usesSecret && !!input.password`). The Profile editor's password field is **empty by default when editing** — we don't reveal stored secrets unless you click the eye. So saving the profile to flip *any other field* (e.g. enabling Legacy SSH compatibility, renaming the profile, changing the color) submitted an empty `password` and clobbered `uses_keychain` to `0`.
+
+The keychain entry itself was untouched — the DB just stopped pointing at it. From then on, `/api/profiles/:id/internal-secret` would read `row.password` (NULL) instead of the keychain, and the built-in terminal's auto-fill silently bailed because the fetch returned `null`.
+
+This is what happened earlier with the `LDAP - davy.tan` profile after enabling Legacy SSH compatibility — the toggle worked, the connection succeeded, but the password no longer auto-filled.
+
+#### Fix #1 — preserve the keychain link
+PUT now reads the existing row before writing. The new logic:
+
+| Condition | `uses_keychain` after update |
+|---|---|
+| `auth_type` switched away from password/passphrase | `0` (correct — we should clear) |
+| Body included a non-empty `password` | `1` (correct — fresh keychain write) |
+| Edit of any other field, no password supplied | **preserve the existing value** |
+
+So flipping a toggle on a profile no longer disturbs its keychain binding.
+
+#### Fix #2 — relink orphans on next startup
+A new idempotent post-migration runs alongside the existing plaintext→keychain one. For every profile where:
+- `auth_type` is `password` or `key_with_passphrase`
+- `uses_keychain = 0` and `password` is null/empty (the orphan footprint)
+
+…we ask the keychain whether an entry still exists for that profile id. If yes, we set `uses_keychain = 1` and audit-log `profile.keychain_relinked`. Existing profiles broken by the v0.9.x PUT bug heal automatically on next launch.
+
+If the keychain doesn't have an entry either (e.g. user deleted it), nothing changes — the profile just stays in its current "needs you to re-enter the password" state.
+
 ## [0.9.15] — 2026-05-08
 
 ### Hotfix: drop `ssh-dss` from the legacy compat list
