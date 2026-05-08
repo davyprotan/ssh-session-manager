@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 
 const AUTO_FILL_KEY = "ssh-manager-autofill-enabled";
+const COPY_ON_SELECT_KEY = "ssh-manager-copy-on-select";
 import { toast } from "sonner";
 
 interface BackupInfo {
@@ -77,18 +78,25 @@ export default function SettingsDialog({ open, onClose, onChanged, onOpenSshImpo
   const [sshConfigPreviewOpen, setSshConfigPreviewOpen] = useState(false);
 
   const [autoFillEnabled, setAutoFillEnabled] = useState(true);
+  const [copyOnSelectEnabled, setCopyOnSelectEnabled] = useState(true);
 
   useEffect(() => {
     if (!open) return;
     try {
       const v = localStorage.getItem(AUTO_FILL_KEY);
       setAutoFillEnabled(v === null ? true : v === "true");
+      const c = localStorage.getItem(COPY_ON_SELECT_KEY);
+      setCopyOnSelectEnabled(c === null ? true : c === "true");
     } catch { /* ignore */ }
   }, [open]);
 
   function persistAutoFill(v: boolean) {
     setAutoFillEnabled(v);
     try { localStorage.setItem(AUTO_FILL_KEY, String(v)); } catch { /* ignore */ }
+  }
+  function persistCopyOnSelect(v: boolean) {
+    setCopyOnSelectEnabled(v);
+    try { localStorage.setItem(COPY_ON_SELECT_KEY, String(v)); } catch { /* ignore */ }
   }
 
   async function fetchBackups() {
@@ -511,6 +519,33 @@ export default function SettingsDialog({ open, onClose, onChanged, onOpenSshImpo
                   </p>
                 </div>
               </div>
+
+              {/* Copy-on-select */}
+              <div className="flex items-start gap-3 pt-3 mt-3" style={{ borderTop: "1px solid color-mix(in srgb, var(--fg) 6%, transparent)" }}>
+                <div className="flex h-9 w-9 items-center justify-center rounded-lg shrink-0" style={{ background: "color-mix(in srgb, var(--accent) 10%, transparent)", color: "var(--accent)" }}>
+                  <TerminalIcon className="h-4 w-4" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-[14px] font-semibold" style={{ color: "var(--foreground)" }}>Copy text on select</p>
+                    <button
+                      onClick={() => persistCopyOnSelect(!copyOnSelectEnabled)}
+                      role="switch"
+                      aria-checked={copyOnSelectEnabled}
+                      className="relative inline-flex h-5 w-9 items-center rounded-full transition-colors"
+                      style={{ background: copyOnSelectEnabled ? "var(--accent)" : "color-mix(in srgb, var(--fg) 18%, transparent)" }}
+                    >
+                      <span className="inline-block h-4 w-4 rounded-full bg-white transition-transform" style={{
+                        transform: copyOnSelectEnabled ? "translateX(18px)" : "translateX(2px)",
+                      }} />
+                    </button>
+                  </div>
+                  <p className="text-[12px] mt-0.5" style={{ color: "var(--muted-fg)" }}>
+                    Highlighting text in a built-in terminal copies it to the clipboard automatically — no <span className="font-mono">⌘C</span> needed. <span className="font-mono">⌘V</span> still pastes as usual.
+                  </p>
+                </div>
+              </div>
+
               <p className="text-[11px] flex items-center gap-1.5 pt-3" style={{ color: "var(--subtle-fg)" }}>
                 <TerminalIcon className="h-3 w-3" />
                 Open a session via its card → <span className="font-mono">Open in built-in terminal</span>.

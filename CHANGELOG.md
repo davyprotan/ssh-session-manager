@@ -2,6 +2,16 @@
 
 All notable changes to **SSH Manager**.
 
+## [0.9.11] — 2026-05-07
+
+### Copy text on select in the built-in terminal
+
+Highlighting text in a built-in terminal now copies it to the clipboard automatically — Linux-X11 / iTerm2 "Copy on select" style. No `⌘C` needed; `⌘V` still pastes as usual.
+
+Implemented as a `mouseup` listener on the xterm container: when the mouse is released and `term.getSelection()` is non-empty, the selection is written to the clipboard via `navigator.clipboard.writeText`. Anchored to mouseup (not xterm's `onSelectionChange`) so we don't pound the clipboard while you're still dragging.
+
+Toggle in **Settings → Built-in terminal → Copy text on select**. Default ON. Persisted as `ssh-manager-copy-on-select` in localStorage.
+
 ## [0.9.10] — 2026-05-07
 
 ### Restore double-click-to-zoom on the title bar
