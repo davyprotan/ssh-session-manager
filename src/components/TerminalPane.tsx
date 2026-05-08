@@ -49,7 +49,7 @@ export default function TerminalPane({ terminals, onCloseTab, onCloseAll, stretc
 
   if (stretched) {
     return (
-      <div className="flex flex-col h-full min-h-0" style={{ background: "#0d1117" }}>
+      <div className="flex flex-col flex-1 min-h-0" style={{ background: "#0d1117" }}>
         {terminals.length === 0 ? (
           <div className="flex-1 flex items-center justify-center" style={{ color: "var(--muted-fg)" }}>
             {emptyState ?? (

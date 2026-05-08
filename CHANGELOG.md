@@ -2,6 +2,23 @@
 
 All notable changes to **SSH Manager**.
 
+## [0.9.9] — 2026-05-07
+
+### Layout toggle no longer kills active terminals
+
+Reported: with an open ssh session, toggling between dashboard and split layout would lose the connection — a fresh ssh process would spawn instead.
+
+Cause: `<TerminalPane>` was rendered in a different position in the JSX tree depending on layout (sibling of `<main>` for dashboard, child of a flex row for split). React's reconciler treats components at different positions as different mounts, so the whole component subtree (including the xterm instance and the IPC handle to the underlying pty) was unmounted and recreated on every layout change.
+
+Fix: restructure the page root so the body row is a permanent flex container, and `<TerminalPane>` is **always the last child of the same "main column" `<div>`** regardless of layout. The layout toggle now changes only:
+- whether `<CompactSessionList>` is rendered alongside it (split shows the sidebar)
+- whether the dashboard `<main>` is rendered above it (dashboard shows the tabs/lists)
+- the `stretched` prop on `<TerminalPane>` (controls bottom-strip vs full-height)
+
+All of those are prop / sibling changes that React preserves the `<TerminalPane>` instance through. Open ssh sessions, scrollback, terminal state, and per-tab autofill state all survive the toggle.
+
+Also adjusted stretched mode's outer flex to `flex-1 min-h-0` (was `h-full`) so it sizes correctly inside the new flex-column parent.
+
 ## [0.9.8] — 2026-05-07
 
 ### Tabbed sidebar in split layout
