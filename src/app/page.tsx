@@ -392,8 +392,13 @@ export default function Home() {
         </div>
       </header>
 
-      {hasBuiltInTerminal && layout === "split" && (
-        <div className="flex-1 min-h-0 flex" style={{ background: "var(--background)" }}>
+      {/* Body row: optional sidebar + always-mounted "main column" that hosts
+          either the dashboard <main> + bottom-strip TerminalPane, or just the
+          stretched TerminalPane in split layout. The TerminalPane lives at the
+          SAME JSX position in both layouts so React preserves the component
+          instance (and therefore xterm + the live ssh pty) across toggles. */}
+      <div className="flex-1 min-h-0 flex" style={{ background: "var(--background)" }}>
+        {hasBuiltInTerminal && layout === "split" && (
           <CompactSessionList
             tab={tab}
             sessions={sessions}
@@ -430,16 +435,9 @@ export default function Home() {
             onEditProfile={(p) => { setEditingProfile(p); setProfileDialogOpen(true); }}
             onDeleteProfile={(p) => setDeleteTarget({ type: "profile", id: p.id, name: p.name })}
           />
-          <div className="flex-1 min-w-0">
-            <TerminalPane
-              terminals={openTerminals}
-              onCloseTab={closeTerminal}
-              onCloseAll={closeAllTerminals}
-              stretched
-            />
-          </div>
-        </div>
-      )}
+        )}
+
+        <div className="flex-1 min-w-0 flex flex-col">
 
       {(!hasBuiltInTerminal || layout === "dashboard") && (
       <main className="flex-1 min-h-0 overflow-y-auto"><div className="max-w-5xl mx-auto w-full px-5 py-7">
@@ -590,13 +588,16 @@ export default function Home() {
       </div></main>
       )}
 
-      {hasBuiltInTerminal && layout === "dashboard" && (
-        <TerminalPane
-          terminals={openTerminals}
-          onCloseTab={closeTerminal}
-          onCloseAll={closeAllTerminals}
-        />
-      )}
+          {hasBuiltInTerminal && (
+            <TerminalPane
+              terminals={openTerminals}
+              onCloseTab={closeTerminal}
+              onCloseAll={closeAllTerminals}
+              stretched={layout === "split"}
+            />
+          )}
+        </div>{/* /main column */}
+      </div>{/* /body row */}
 
       <SessionDialog
         open={sessionDialogOpen}
