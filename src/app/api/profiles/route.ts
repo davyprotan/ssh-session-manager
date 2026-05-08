@@ -8,7 +8,7 @@ import { audit } from '@/lib/audit';
 const PUBLIC_COLS = `
   id, name, username, auth_type, key_path, port, color, is_default,
   agent_forwarding, compression, server_alive_interval, extra_args,
-  uses_keychain, created_at, updated_at,
+  uses_keychain, compat_legacy, created_at, updated_at,
   CASE WHEN password IS NOT NULL OR uses_keychain = 1 THEN 1 ELSE 0 END AS has_password
 `;
 
@@ -57,14 +57,15 @@ export async function POST(req: NextRequest) {
       const result = db.prepare(`
         INSERT INTO profiles
           (name, username, auth_type, password, key_path, port, color, is_default,
-           agent_forwarding, compression, server_alive_interval, extra_args, uses_keychain)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           agent_forwarding, compression, server_alive_interval, extra_args, uses_keychain, compat_legacy)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         input.name, input.username, input.auth_type,
         null,
         input.key_path, input.port, input.color, input.is_default,
         input.agent_forwarding, input.compression, input.server_alive_interval, input.extra_args,
         useKeychain ? 1 : 0,
+        input.compat_legacy,
       );
       return Number(result.lastInsertRowid);
     })();

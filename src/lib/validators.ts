@@ -90,7 +90,7 @@ function extraArgs(v: unknown): string | null {
   if (v == null || v === '') return null;
   const t = s(v, 1024).trim();
   if (!t) return null;
-  if (!/^(\s*-o\s+[A-Za-z0-9]+(?:=[A-Za-z0-9._\-/]*)?)+\s*$/.test(t)) {
+  if (!/^(\s*-o\s+[A-Za-z0-9]+(?:=[A-Za-z0-9._\-/+,@:]*)?)+\s*$/.test(t)) {
     throw new ValidationError('extra_args must be one or more "-o Key=Value" pairs');
   }
   return t;
@@ -112,6 +112,7 @@ export function parseProfile(body: unknown) {
     compression: bool(b.compression),
     server_alive_interval: num(b.server_alive_interval, 0, 86400, 0),
     extra_args: extraArgs(b.extra_args),
+    compat_legacy: bool(b.compat_legacy),
   };
 }
 

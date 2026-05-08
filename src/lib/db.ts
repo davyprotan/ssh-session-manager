@@ -18,7 +18,7 @@ const DB_PATH = path.join(DATA_DIR, 'sessions.db');
 const BACKUPS_DIR = path.join(DATA_DIR, 'backups');
 
 /** Current schema version. Bump only when adding/changing columns or tables. */
-const SCHEMA_VERSION = 5;
+const SCHEMA_VERSION = 6;
 
 if (!fs.existsSync(DATA_DIR)) {
   fs.mkdirSync(DATA_DIR, { recursive: true, mode: 0o700 });
@@ -170,6 +170,9 @@ function migrate(db: Database.Database) {
   ensureColumn(db, 'profiles', 'server_alive_interval', 'server_alive_interval INTEGER NOT NULL DEFAULT 0');
   ensureColumn(db, 'profiles', 'extra_args', 'extra_args TEXT');
   ensureColumn(db, 'profiles', 'uses_keychain', 'uses_keychain INTEGER NOT NULL DEFAULT 0');
+  // v6: add legacy-SSH-compat flag — adds the well-known deprecated KEX /
+  // host-key / cipher / MAC algos that old network gear still requires.
+  ensureColumn(db, 'profiles', 'compat_legacy', 'compat_legacy INTEGER NOT NULL DEFAULT 0');
   ensureColumn(db, 'sessions', 'folder_id', 'folder_id INTEGER REFERENCES folders(id) ON DELETE SET NULL');
   ensureColumn(db, 'sessions', 'jump_host', 'jump_host TEXT');
 

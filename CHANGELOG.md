@@ -2,6 +2,39 @@
 
 All notable changes to **SSH Manager**.
 
+## [0.9.14] — 2026-05-08
+
+### Legacy SSH compatibility for old network gear
+
+OpenSSH 9+ disables a bunch of deprecated algorithms by default — `diffie-hellman-group14-sha1`, `diffie-hellman-group1-sha1`, `ssh-rsa` host keys, CBC ciphers, `hmac-sha1` MACs. Modern hosts negotiate around them; **older network gear still requires them**, and you get:
+
+```
+Unable to negotiate with 10.32.24.81 port 22: no matching key exchange method found.
+Their offer: diffie-hellman-group14-sha1,diffie-hellman-group1-sha1
+```
+
+Two fixes:
+
+#### New profile toggle: "Legacy SSH compatibility"
+**Profile editor → Advanced SSH options → Legacy SSH compatibility**. When enabled, ssh is invoked with the deprecated KEX / host-key / cipher / MAC algorithms appended to the modern defaults using `+algo` syntax — so modern hosts still pick modern algos and old hosts negotiate the legacy ones. Specifically adds:
+
+```
+-o KexAlgorithms=+diffie-hellman-group14-sha1,diffie-hellman-group1-sha1,diffie-hellman-group-exchange-sha1
+-o HostKeyAlgorithms=+ssh-rsa,ssh-dss
+-o PubkeyAcceptedAlgorithms=+ssh-rsa
+-o Ciphers=+aes128-cbc,aes192-cbc,aes256-cbc,3des-cbc
+-o MACs=+hmac-sha1,hmac-sha2-256,hmac-md5
+```
+
+Schema bumped to v6 (one new column: `profiles.compat_legacy`, default 0). Wired through every spawn path — built-in terminal, ad-hoc spawn, legacy iTerm via `/api/connect`.
+
+#### Relaxed `extra_args` validator
+The validator now accepts `+`, `,`, `@`, `:` in `-o Key=Value` values, so you can write your own algorithm lists (e.g. `-o KexAlgorithms=+diffie-hellman-group-exchange-sha256,diffie-hellman-group14-sha256`) or vendor-prefixed algorithms (`-o Ciphers=+chacha20-poly1305@openssh.com`) without the regex blocking you. Shell metacharacters like `` ` ``, `$`, `;`, `|` are still rejected.
+
+#### Tests
+- Validator tests cover algorithm lists with `+`/`,`, vendor-prefixed names with `@`, and continued rejection of shell metacharacters
+- 119 / 119 passing
+
 ## [0.9.13] — 2026-05-08
 
 ### Better keychain UX: dialog says "SSH Manager", first-launch welcome card

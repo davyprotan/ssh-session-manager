@@ -74,12 +74,30 @@ describe('parseProfile', () => {
     const valueless = parseProfile({ ...BASE_PROFILE, extra_args: '-o VisualHostKey' });
     expect(valueless.extra_args).toBe('-o VisualHostKey');
 
+    // Algorithm lists with `+`, `,`, `@`, `:` — used for KexAlgorithms,
+    // HostKeyAlgorithms, Ciphers, MACs, etc. on legacy network gear.
+    const legacy = parseProfile({
+      ...BASE_PROFILE,
+      extra_args: '-o KexAlgorithms=+diffie-hellman-group14-sha1,diffie-hellman-group1-sha1 -o HostKeyAlgorithms=+ssh-rsa',
+    });
+    expect(legacy.extra_args).toBe('-o KexAlgorithms=+diffie-hellman-group14-sha1,diffie-hellman-group1-sha1 -o HostKeyAlgorithms=+ssh-rsa');
+
+    // Vendor-prefixed algos (chacha20-poly1305@openssh.com) and proxy URLs.
+    const vendor = parseProfile({
+      ...BASE_PROFILE,
+      extra_args: '-o Ciphers=+chacha20-poly1305@openssh.com',
+    });
+    expect(vendor.extra_args).toBe('-o Ciphers=+chacha20-poly1305@openssh.com');
+
     for (const bad of [
       '-X',
       '-L 8080:localhost:80',
       '-o ServerAliveInterval=30; rm -rf /',
       'ServerAliveInterval=30',
       '-o Key=$(whoami)',
+      // shell metacharacters still rejected even after the value-charset relax
+      '-o Cipher=`whoami`',
+      '-o Cipher=foo|bar',
     ]) {
       expect(() => parseProfile({ ...BASE_PROFILE, extra_args: bad })).toThrow(/extra_args/);
     }
