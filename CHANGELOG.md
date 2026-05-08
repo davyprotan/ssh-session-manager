@@ -2,6 +2,16 @@
 
 All notable changes to **SSH Manager**.
 
+## [0.9.10] — 2026-05-07
+
+### Restore double-click-to-zoom on the title bar
+
+v0.9.5 backed off the drag region to *only* the empty `flex-1` spacer between the nav and search box (because v0.9.4's "drag the entire `<header>`" approach broke tab clicks). That fixed the tabs but left most of the title bar — the wide gutters on either side of the centered `max-w-5xl` content — non-draggable. Double-clicking those gutters did nothing.
+
+**Fix**: drag region back on the outer `<header>` PLUS an explicit `app-no-drag` wrapper on the inner `max-w-5xl` content. The CSS rule `.app-drag-region .app-no-drag` makes the entire inner content (and every button it contains) non-draggable, so tab clicks aren't swallowed. The flex-1 spacer between nav and search re-asserts `app-drag-region` so that empty area is draggable too.
+
+Result: drag from anywhere in the title bar that isn't a button / input. Double-click anywhere that isn't a button / input → zoom (per System Settings → Desktop & Dock). Tabs still click normally.
+
 ## [0.9.9] — 2026-05-07
 
 ### Layout toggle no longer kills active terminals

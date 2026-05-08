@@ -285,8 +285,14 @@ export default function Home() {
     <div className="flex flex-col h-screen overflow-hidden" style={{ background: "var(--background)" }}>
       <UpdateBanner />
       {/* Header */}
-      <header className="sticky top-0 z-20 border-b" style={{ borderColor: "var(--border)", background: "color-mix(in srgb, var(--background) 85%, transparent)", backdropFilter: "blur(12px)" }}>
-        <div className="max-w-5xl mx-auto px-5 h-14 flex items-center gap-3">
+      {/* Header: outer element is the title-bar drag region (drag + double-
+          click to zoom). The inner content wrapper carries .app-no-drag, which
+          (per the CSS rule in globals.css) makes everything inside it
+          non-draggable so all buttons / inputs / clicks behave normally. The
+          internal flex-1 spacer between nav and search re-asserts drag so the
+          centered area is also draggable. */}
+      <header className="app-drag-region sticky top-0 z-20 border-b" style={{ borderColor: "var(--border)", background: "color-mix(in srgb, var(--background) 85%, transparent)", backdropFilter: "blur(12px)" }}>
+        <div className="app-no-drag max-w-5xl mx-auto px-5 h-14 flex items-center gap-3">
           <button
             onClick={() => { setTab("saved"); setSearch(""); }}
             className="flex items-center gap-2.5 shrink-0 mr-2 rounded-lg px-1 -mx-1 py-1 -my-1 transition-colors hover:bg-accent/40"
