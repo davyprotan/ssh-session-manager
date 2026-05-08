@@ -156,7 +156,17 @@ async function maybeAutoInject(handle, session) {
 
   if (decision.kind === 'none') return;
   if (decision.kind === 'skip') {
-    if (typeof _config.audit === 'function') {
+    // A yes/no prompt (host-key acceptance on first connect, sudo
+    // confirmation, etc.) is TRANSIENT — the user will answer and the
+    // real password prompt typically comes immediately after. We must
+    // not permanently disable auto-fill here, or first-time connects
+    // would never get auto-filled.
+    //
+    // Other skip reasons (MFA / OTP context, no stored secret, already
+    // injected) are session-final, so we mark the session disabled.
+    const isTransient = typeof decision.reason === 'string' && /yes\/no/i.test(decision.reason);
+
+    if (typeof _config.audit === 'function' && !isTransient) {
       _config.audit('terminal.autofill_skipped', {
         target_type: 'session',
         target_id: profile.sessionId,
@@ -164,7 +174,14 @@ async function maybeAutoInject(handle, session) {
         details: { reason: decision.reason },
       });
     }
-    session.autoFillState = 'disabled';
+
+    if (!isTransient) {
+      session.autoFillState = 'disabled';
+    } else {
+      // Throw away the recent tail so the next scan doesn't keep matching the
+      // yes/no question and we evaluate fresh once the user has answered.
+      session.promptTail = '';
+    }
     return;
   }
 

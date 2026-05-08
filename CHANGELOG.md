@@ -2,6 +2,27 @@
 
 All notable changes to **SSH Manager**.
 
+## [0.9.12] — 2026-05-08
+
+### Fix: first-time host connects now auto-fill correctly
+
+Reported via Quick Connect: connecting to a host that's never been seen before, you get the SSH host-key fingerprint prompt — `Are you sure you want to continue connecting (yes/no/[fingerprint])?`. The auto-fill detector correctly refused to inject the password into that prompt (correct: typing the LDAP password as the answer would leak it), but it also **permanently disabled auto-fill for the rest of the session**. So after typing `yes` and accepting the host key, the *real* password prompt that followed got no auto-fill — you had to type the password manually.
+
+Cause: `pty-manager.js` treated every `{kind: "skip"}` from the prompt detector as a session-final decision.
+
+Fix: distinguish **transient** skips from **session-final** skips:
+
+| Skip reason | Treatment |
+|---|---|
+| `yes/no prompt` (fingerprint / sudo / etc.) | **Transient** — keep auto-fill armed, clear the prompt tail, re-evaluate on the next chunk. After the user types `yes`, the password prompt that follows is auto-filled |
+| `MFA / OTP indicator detected` | Session-final — disabled |
+| `no stored secret for this profile` | Session-final — disabled |
+| `already auto-injected once this session` | Session-final — already disabled |
+
+Audit log now only records `terminal.autofill_skipped` for session-final skips. Yes/no prompts are silent.
+
+Also clears `session.promptTail` after a transient skip so the stale yes/no text doesn't keep matching on subsequent re-scans.
+
 ## [0.9.11] — 2026-05-07
 
 ### Copy text on select in the built-in terminal
