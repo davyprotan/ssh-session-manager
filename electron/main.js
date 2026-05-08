@@ -139,7 +139,7 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       preload: path.join(__dirname, 'preload.js'),
-      sandbox: false,
+      sandbox: true,
     },
   });
 
@@ -156,6 +156,17 @@ function createWindow() {
       return { action: 'deny' };
     }
     return { action: 'allow' };
+  });
+
+  // Pin the renderer to APP_URL — any in-page navigation to a foreign origin
+  // would give that origin fetch access to the local API (its Origin would
+  // match the loopback allowlist). Defense in depth against XSS / phishing
+  // links rendered into the DOM.
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    if (!url.startsWith(APP_URL)) {
+      event.preventDefault();
+      shell.openExternal(url);
+    }
   });
 
   // When this window closes, kill any ptys it owned so we don't leak ssh

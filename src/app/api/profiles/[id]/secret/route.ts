@@ -5,11 +5,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
 import { getPassword as kcGet } from '@/lib/keychain';
-import { assertSafeOrigin } from '@/lib/api-guard';
+import { assertSafeRead } from '@/lib/api-guard';
 import { audit } from '@/lib/audit';
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const guard = assertSafeOrigin(req);
+  const guard = assertSafeRead(req);
   if (guard) return guard;
 
   const { id } = await params;

@@ -5,6 +5,97 @@ const HOST_RE = /^[a-zA-Z0-9._:%\-]+$/; // hostnames, IPv4, IPv6 (with %scope), 
 const USER_RE = /^[a-zA-Z0-9._-]{1,64}$/;
 const KEYPATH_RE = /^[a-zA-Z0-9._/~\-+ ]+$/; // no metacharacters; spaces allowed in path
 
+// Allowlist of SSH `-o` keys that we permit in the extra_args field.
+//
+// The previous regex accepted any `[A-Za-z0-9]+` key, which let users smuggle
+// `-o ProxyCommand=…`, `-o LocalCommand=…`, `-o IdentityAgent=…`, etc. — all
+// options that route user-controlled values through a shell. Even though the
+// app stores its own profiles, a future renderer-side compromise (XSS, IPC
+// confusion) could plant such a value in extra_args and get arbitrary local
+// execution the next time the user clicked Connect.
+//
+// This allowlist is deliberately conservative: only options that tune
+// connection / auth / algorithm behaviour, none that execute commands, change
+// identity sources, or open additional channels. If you need something not on
+// this list, prefer adding a dedicated profile field with its own validation.
+const SAFE_EXTRA_ARG_KEYS: ReadonlySet<string> = new Set([
+  // Connection tuning
+  "connecttimeout", "connectionattempts", "tcpkeepalive",
+  "serveraliveinterval", "serveralivecountmax",
+  // Auth tuning (NOT IdentityAgent, NOT IdentityFile — those go through dedicated fields)
+  "batchmode", "identitiesonly", "numberofpasswordprompts",
+  "preferredauthentications", "passwordauthentication", "pubkeyauthentication",
+  "kbdinteractiveauthentication", "gssapiauthentication",
+  // Host-key tuning
+  "stricthostkeychecking", "userknownhostsfile", "hashknownhosts",
+  "checkhostip", "hostkeyalias", "fingerprinthash", "verifyhostkeydns",
+  // Algorithm tuning
+  "kexalgorithms", "hostkeyalgorithms", "ciphers", "macs",
+  "pubkeyacceptedalgorithms", "hostbasedacceptedalgorithms", "casignaturealgorithms",
+  // Logging / display
+  "loglevel", "visualhostkey",
+  // Agent (NOT IdentityAgent — that lets you redirect to an attacker socket)
+  "addkeystoagent",
+  // X11
+  "forwardx11", "forwardx11trusted", "forwardx11timeout",
+  // Misc safe options
+  "requesttty", "nohostauthenticationforlocalhost",
+]);
+
+// Per-pair value charset: alphanumerics + the punctuation seen in real SSH
+// option values (paths, comma-separated algorithm lists, durations). No
+// spaces, `$`, `{}`, `<>`, backticks, or quotes — all already rejected by the
+// upstream regex but reasserted here for clarity.
+const EXTRA_ARG_VALUE_RE = /^[A-Za-z0-9._\-/+,@:]*$/;
+
+export interface ExtraArgsParseResult {
+  ok: boolean;
+  /** Tokenized argv slice, e.g. ['-o','ConnectTimeout=10','-o','BatchMode=yes']. */
+  tokens?: string[];
+  /** Reason a value was rejected, suitable for surfacing in a 400 response. */
+  error?: string;
+}
+
+/**
+ * Parse and validate an extra_args string. Accepts only `-o Key[=Value]` pairs
+ * where `Key` is in `SAFE_EXTRA_ARG_KEYS`. Returns `{ok:true, tokens}` on
+ * success or `{ok:false, error}` describing the first invalid pair.
+ */
+export function parseExtraArgs(input: string): ExtraArgsParseResult {
+  const trimmed = input.trim();
+  if (!trimmed) return { ok: true, tokens: [] };
+
+  // Tokenize on whitespace. Each `-o` consumes the next token.
+  const raw = trimmed.split(/\s+/).filter(Boolean);
+  const tokens: string[] = [];
+
+  for (let i = 0; i < raw.length; i++) {
+    if (raw[i] !== "-o") {
+      return { ok: false, error: 'extra_args must be "-o Key[=Value]" pairs' };
+    }
+    const pair = raw[i + 1];
+    if (!pair) return { ok: false, error: '"-o" requires a Key=Value' };
+    i++;
+
+    const eq = pair.indexOf("=");
+    const key = eq >= 0 ? pair.slice(0, eq) : pair;
+    const value = eq >= 0 ? pair.slice(eq + 1) : "";
+
+    if (!/^[A-Za-z][A-Za-z0-9]*$/.test(key)) {
+      return { ok: false, error: `invalid -o key: ${key}` };
+    }
+    if (!SAFE_EXTRA_ARG_KEYS.has(key.toLowerCase())) {
+      return { ok: false, error: `-o ${key} is not allowed (see safe-keys allowlist)` };
+    }
+    if (!EXTRA_ARG_VALUE_RE.test(value)) {
+      return { ok: false, error: `invalid value for -o ${key}` };
+    }
+    tokens.push("-o", pair);
+  }
+
+  return { ok: true, tokens };
+}
+
 export interface SshArgsInput {
   host: string;
   port: number;
@@ -32,12 +123,6 @@ export interface SshArgsError {
   error: string;
 }
 
-function isValidExtraArgs(s: string): boolean {
-  if (!s.trim()) return true;
-  // Only `-o Key=Value` pairs separated by single spaces, repeated
-  return /^(\s*-o\s+[A-Za-z0-9]+(?:=[A-Za-z0-9._\-/+,@:]*)?)+\s*$/.test(s);
-}
-
 export function buildSshArgs(input: SshArgsInput): SshArgsResult | SshArgsError {
   const host = (input.host || "").trim();
   if (!host || !HOST_RE.test(host)) return { ok: false, error: "invalid host" };
@@ -62,8 +147,9 @@ export function buildSshArgs(input: SshArgsInput): SshArgsResult | SshArgsError 
   if (sai < 0 || sai > 86400) return { ok: false, error: "invalid keepalive" };
 
   const extraArgs = (input.extraArgs || "").trim();
-  if (extraArgs && !isValidExtraArgs(extraArgs)) {
-    return { ok: false, error: 'extra args must be "-o Key=Value" pairs' };
+  const parsedExtra = parseExtraArgs(extraArgs);
+  if (!parsedExtra.ok) {
+    return { ok: false, error: parsedExtra.error || "invalid extra_args" };
   }
 
   const argv: string[] = [];
@@ -93,10 +179,8 @@ export function buildSshArgs(input: SshArgsInput): SshArgsResult | SshArgsError 
     argv.push("-o", "Ciphers=+aes128-cbc,aes192-cbc,aes256-cbc,3des-cbc");
     argv.push("-o", "MACs=+hmac-sha1,hmac-sha2-256,hmac-md5");
   }
-  if (extraArgs) {
-    // Already validated to be "-o Key=Value [-o Key=Value...]". Tokenize.
-    const tokens = extraArgs.split(/\s+/).filter(Boolean);
-    argv.push(...tokens);
+  if (parsedExtra.tokens && parsedExtra.tokens.length > 0) {
+    argv.push(...parsedExtra.tokens);
   }
   argv.push(username ? `${username}@${host}` : host);
 

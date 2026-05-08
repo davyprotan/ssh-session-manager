@@ -18,14 +18,49 @@
 import { NextRequest, NextResponse } from "next/server";
 import { assertSafeOrigin } from "@/lib/api-guard";
 import { probeTcp } from "@/lib/probe";
+import { rateLimit } from "@/lib/rate-limit";
 
 const HOST_RE = /^[a-zA-Z0-9._:%\-]+$/;
 const DEFAULT_TIMEOUT_MS = 3000;
 const MAX_TIMEOUT_MS = 8000;
 
+// Block cloud-instance metadata services and obvious link-local probes. The
+// probe endpoint exists to test SSH reachability of saved hosts, not to scan
+// link-local IMDS endpoints. See:
+//   AWS:   169.254.169.254  / fd00:ec2::254
+//   GCP:   metadata.google.internal / 169.254.169.254
+//   Azure: 169.254.169.254
+//   IBM:   169.254.169.254
+const BLOCKED_HOSTNAMES: ReadonlySet<string> = new Set([
+  "metadata.google.internal",
+  "metadata",
+  "instance-data",
+  "instance-data.ec2.internal",
+]);
+
+function isBlockedHost(host: string): boolean {
+  const lower = host.toLowerCase();
+  if (BLOCKED_HOSTNAMES.has(lower)) return true;
+  // Any 169.254.x.x literal (covers 169.254.169.254 and other link-local junk)
+  if (/^169\.254\.\d{1,3}\.\d{1,3}$/.test(host)) return true;
+  // AWS IPv6 IMDS
+  if (lower === "fd00:ec2::254" || lower === "[fd00:ec2::254]") return true;
+  return false;
+}
+
 export async function POST(req: NextRequest) {
   const guard = assertSafeOrigin(req);
   if (guard) return guard;
+
+  // 60 probes / minute is plenty for the UI's quick-connect flow and makes
+  // any scripted port-scan loud (and bounded).
+  const rl = rateLimit("probe", 60, 60_000);
+  if (!rl.allowed) {
+    return NextResponse.json(
+      { error: "Too many probes. Try again shortly." },
+      { status: 429, headers: { "Retry-After": String(Math.ceil(rl.retryAfterMs / 1000)) } },
+    );
+  }
 
   const body = await req.json().catch(() => null);
   if (!body || typeof body !== "object") {
@@ -35,6 +70,9 @@ export async function POST(req: NextRequest) {
   const host = typeof body.host === "string" ? body.host.trim() : "";
   if (!host || !HOST_RE.test(host) || host.length > 253) {
     return NextResponse.json({ error: "invalid host" }, { status: 400 });
+  }
+  if (isBlockedHost(host)) {
+    return NextResponse.json({ error: "host is not probeable" }, { status: 400 });
   }
 
   const portRaw = body.port;
