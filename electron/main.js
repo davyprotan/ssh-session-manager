@@ -4,16 +4,25 @@ const crypto = require('crypto');
 const { spawn } = require('child_process');
 const http = require('http');
 const ptyManager = require('./pty-manager');
+const keychainServer = require('./keychain-server');
 
 const APP_PORT = 3005;
 const APP_URL = `http://127.0.0.1:${APP_PORT}`;
 
-// Random per-launch token gating /api/_internal/* routes (e.g. spawn-plan).
-// Generated here, passed to Next.js via env, never sent to the renderer.
+// Random per-launch token gating /api/_internal/* routes (e.g. spawn-plan)
+// AND the in-process keychain delegation server. Generated here, passed to
+// Next.js via env, never sent to the renderer.
 const INTERNAL_TOKEN = crypto.randomBytes(32).toString('hex');
+
+// Set when the keychain server has booted. Passed to the Next.js child via
+// env so server-side code can delegate keytar calls to the main process —
+// macOS attributes the keychain access dialog to "SSH Manager" (the bundle)
+// rather than "next-server" (the Node process title in the child).
+let KEYCHAIN_URL = '';
 
 let mainWindow = null;
 let serverProcess = null;
+let keychainServerHandle = null;
 
 function isServerUp() {
   return new Promise((resolve) => {
@@ -69,6 +78,7 @@ function startServer() {
         ELECTRON_RUN_AS_NODE: '1',
         NODE_ENV: 'production',
         SSH_MANAGER_INTERNAL_TOKEN: INTERNAL_TOKEN,
+        SSH_MANAGER_KEYCHAIN_URL: KEYCHAIN_URL,
       },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
@@ -86,6 +96,7 @@ function startServer() {
         ...process.env,
         NODE_ENV: 'production',
         SSH_MANAGER_INTERNAL_TOKEN: INTERNAL_TOKEN,
+        SSH_MANAGER_KEYCHAIN_URL: KEYCHAIN_URL,
       },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
@@ -167,12 +178,24 @@ app.whenReady().then(async () => {
     ]));
   }
 
+  // Boot the in-process keychain delegation server FIRST so we can pass its
+  // URL to the Next.js child. macOS attributes keychain access dialogs to
+  // the process that calls keytar — running it from main means the dialog
+  // says "SSH Manager", not "next-server".
+  try {
+    keychainServerHandle = await keychainServer.start(INTERNAL_TOKEN);
+    KEYCHAIN_URL = keychainServerHandle.url;
+    console.log(`[main] keychain server listening at ${KEYCHAIN_URL}`);
+  } catch (err) {
+    console.error('[main] keychain server failed to start, falling back to in-Next keytar:', err?.message || err);
+    KEYCHAIN_URL = '';
+  }
+
   // Register the SSH-pty IPC handlers BEFORE the window opens, so the
   // renderer can call open() during page load if it wants to.
   ptyManager.register({
     appUrl: APP_URL,
     internalToken: INTERNAL_TOKEN,
-    // Phase-2 hooks (audit + onPtyData) are added later in this file.
   });
 
   // Start server if not already running, then show window
@@ -199,6 +222,7 @@ app.on('window-all-closed', () => {
 
 app.on('before-quit', () => {
   try { ptyManager.killAll(); } catch { /* ignore */ }
+  try { keychainServerHandle?.close(); } catch { /* ignore */ }
   killServer();
 });
 

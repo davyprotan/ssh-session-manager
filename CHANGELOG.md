@@ -2,6 +2,38 @@
 
 All notable changes to **SSH Manager**.
 
+## [0.9.13] — 2026-05-08
+
+### Better keychain UX: dialog says "SSH Manager", first-launch welcome card
+
+The macOS Keychain access dialog used to say **"next-server (v16.2.4) wants to use your confidential information stored in 'SSH Manager' in your keychain"** — confusing because "next-server" isn't an app you installed; it's the bundled Next.js child process's `process.title`. Two changes here address that and the surrounding "what is this prompt?" experience:
+
+#### Keychain delegation moved to Electron main (option D)
+Keychain calls now happen inside the **Electron main process** — the actual `SSH Manager` bundle. A new `electron/keychain-server.js` runs an HTTP server on `127.0.0.1` with an OS-assigned ephemeral port, gated by the same per-launch random `SSH_MANAGER_INTERNAL_TOKEN` already used for `assertInternal`. The Next.js child (which is where the API routes run) delegates every keychain operation to this server via HTTP.
+
+Result: macOS attributes the keychain access dialog to "SSH Manager" (the bundle), exactly like every other macOS app does. One process identity per keychain ACL — simpler model, smaller surface area.
+
+`src/lib/keychain.ts` now picks its mode at runtime:
+- **Delegated** when both `SSH_MANAGER_KEYCHAIN_URL` and `SSH_MANAGER_INTERNAL_TOKEN` env vars are set (production / Electron-launched)
+- **Direct** keytar when they're absent (`npm run dev` without Electron, build steps, tests)
+
+Both modes expose the same public API.
+
+#### First-launch welcome dialog (option B)
+On the very first launch on a new install, a small one-time card appears explaining:
+- Where saved passwords live (the OS keychain, not the app's database)
+- That macOS will ask permission and to click **Always Allow**
+- That the prompt may re-appear on app updates
+- A pointer to the built-in terminal
+
+Tracked via `localStorage["ssh-manager-onboarded"]`. Dismiss once and it's gone forever on that machine.
+
+#### Documented future paths (options C and E)
+README + SECURITY notes now mention two follow-ups we considered but didn't implement:
+
+- **C: Pre-emptive keychain prime** — write a no-op keychain entry on first launch so the prompt appears in a controlled, app-explained moment. Lower-priority follow-up; the welcome dialog covers most of the gap
+- **E: Apple Developer ID** ($99/yr) — the *permanent* fix. With a stable signing identity, the keychain ACL holds across all versions and the prompt never re-appears. Also kills Gatekeeper warnings and enables notarization. Out of scope for code; a money/process decision
+
 ## [0.9.12] — 2026-05-08
 
 ### Fix: first-time host connects now auto-fill correctly

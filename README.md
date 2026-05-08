@@ -87,13 +87,27 @@ You have two options:
 
 If you build it locally (instructions below) the quarantine flag is never set in the first place.
 
-### Keychain prompt on version upgrade
+### Keychain prompts
 
-Because the app is ad-hoc signed (no stable Developer ID), each released `.dmg` has a different code-signing hash. macOS's keychain access-control list is bound to that hash, so on the **first launch after upgrading** the app may prompt you for your system password to grant the new binary access to the existing entries. Click **Always Allow** and you won't see it again until the next upgrade.
+When you save your first password, macOS will ask permission to use the keychain — the dialog says **"SSH Manager wants to use your confidential information stored in 'SSH Manager' in your keychain"**. Click **Always Allow**. This is normal and expected; the app shows a one-time welcome card explaining it on first launch.
 
-A fresh, never-installed user **does not see this prompt** — the keychain item is created by the same binary that later reads it.
+#### Why it might re-appear after an upgrade
 
-If you want this to go away entirely, the app needs a **Developer ID Application** certificate (~$99/yr Apple Developer Program). The signature is then stable across versions, and as a bonus the app passes Gatekeeper without quarantine warnings.
+Because the app is ad-hoc signed (no stable Developer ID), each released `.dmg` has a different code-signing hash. macOS keychain ACLs are bound to that hash, so the **first launch after an upgrade** may show the prompt again. Click **Always Allow** once more — that's macOS protecting your stored credentials.
+
+#### How to make this prompt go away forever
+
+The proper fix is an **Apple Developer ID Application certificate** (~$99/yr through the Apple Developer Program). With a stable signing identity:
+
+- the keychain ACL holds across all versions — the prompt never re-appears after the first **Always Allow**
+- the app passes Gatekeeper without the quarantine warning
+- notarization becomes available
+
+For now we ship ad-hoc signed (free, but with the per-upgrade prompt). The trade-off is documented; the app's code is unchanged.
+
+#### Future work (potential)
+
+A future release could add a **pre-emptive keychain prime** — on first launch the app deliberately writes a no-op entry so the prompt appears in a controlled moment we can explain *immediately before*, instead of when you happen to save your first profile. Tracked but not implemented yet — the welcome dialog is a lighter-weight alternative.
 
 ### Windows SmartScreen note
 
