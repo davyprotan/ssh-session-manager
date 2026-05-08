@@ -14,6 +14,7 @@ interface ProfileRow {
   compression: number;
   server_alive_interval: number;
   extra_args?: string;
+  compat_legacy?: number;
 }
 
 interface SessionRow {
@@ -44,6 +45,7 @@ export async function POST(req: NextRequest) {
   let compression = 0;
   let serverAliveInterval = 0;
   let extraArgs = '';
+  let compatLegacy = 0;
 
   if (typeof body.session_id === 'number') {
     const session = db.prepare(`SELECT * FROM sessions WHERE id = ?`).get(body.session_id) as SessionRow | undefined;
@@ -64,6 +66,7 @@ export async function POST(req: NextRequest) {
         compression = profile.compression || 0;
         serverAliveInterval = profile.server_alive_interval || 0;
         extraArgs = profile.extra_args || '';
+        compatLegacy = profile.compat_legacy || 0;
       }
     }
 
@@ -81,6 +84,7 @@ export async function POST(req: NextRequest) {
     compression = profile.compression || 0;
     serverAliveInterval = profile.server_alive_interval || 0;
     extraArgs = profile.extra_args || '';
+    compatLegacy = profile.compat_legacy || 0;
   } else {
     return NextResponse.json({ error: 'Provide session_id, or host + profile_id' }, { status: 400 });
   }
@@ -96,6 +100,7 @@ export async function POST(req: NextRequest) {
     compression: !!compression,
     serverAliveInterval,
     extraArgs,
+    compatLegacy: !!compatLegacy,
   });
 
   if (!result.ok) {

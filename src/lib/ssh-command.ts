@@ -15,6 +15,10 @@ export interface SshArgsInput {
   compression?: boolean;
   serverAliveInterval?: number;
   extraArgs?: string;
+  /** When true, add the well-known deprecated KEX/host-key/cipher/MAC
+   *  algorithms that old network gear (Arista, ADVA, Cisco IOS, etc.) still
+   *  requires. OpenSSH 9+ disables these by default. */
+  compatLegacy?: boolean;
 }
 
 export interface SshArgsResult {
@@ -31,7 +35,7 @@ export interface SshArgsError {
 function isValidExtraArgs(s: string): boolean {
   if (!s.trim()) return true;
   // Only `-o Key=Value` pairs separated by single spaces, repeated
-  return /^(\s*-o\s+[A-Za-z0-9]+(?:=[A-Za-z0-9._\-/]*)?)+\s*$/.test(s);
+  return /^(\s*-o\s+[A-Za-z0-9]+(?:=[A-Za-z0-9._\-/+,@:]*)?)+\s*$/.test(s);
 }
 
 export function buildSshArgs(input: SshArgsInput): SshArgsResult | SshArgsError {
@@ -69,6 +73,16 @@ export function buildSshArgs(input: SshArgsInput): SshArgsResult | SshArgsError 
   if (input.compression) argv.push("-C");
   if (sai > 0) { argv.push("-o", `ServerAliveInterval=${sai}`); }
   if (jumpHost) { argv.push("-J", jumpHost); }
+  // Legacy compatibility: add the deprecated algorithms that old network
+  // gear still negotiates. Use `+algo` so they're appended to the modern
+  // defaults — modern hosts prefer modern algorithms, old hosts pick these.
+  if (input.compatLegacy) {
+    argv.push("-o", "KexAlgorithms=+diffie-hellman-group14-sha1,diffie-hellman-group1-sha1,diffie-hellman-group-exchange-sha1");
+    argv.push("-o", "HostKeyAlgorithms=+ssh-rsa,ssh-dss");
+    argv.push("-o", "PubkeyAcceptedAlgorithms=+ssh-rsa");
+    argv.push("-o", "Ciphers=+aes128-cbc,aes192-cbc,aes256-cbc,3des-cbc");
+    argv.push("-o", "MACs=+hmac-sha1,hmac-sha2-256,hmac-md5");
+  }
   if (extraArgs) {
     // Already validated to be "-o Key=Value [-o Key=Value...]". Tokenize.
     const tokens = extraArgs.split(/\s+/).filter(Boolean);

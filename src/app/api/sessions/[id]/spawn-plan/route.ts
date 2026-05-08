@@ -19,6 +19,7 @@ interface ProfileRow {
   compression: number;
   server_alive_interval: number;
   extra_args?: string;
+  compat_legacy?: number;
 }
 
 interface SessionRow {
@@ -62,6 +63,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     compression: !!profile?.compression,
     serverAliveInterval: profile?.server_alive_interval || 0,
     extraArgs: profile?.extra_args || "",
+    compatLegacy: !!profile?.compat_legacy,
   });
 
   if (!result.ok) {

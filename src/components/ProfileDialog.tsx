@@ -29,6 +29,7 @@ export default function ProfileDialog({ open, onClose, onSave, profile, backLabe
   const [isDefault, setIsDefault] = useState(false);
   const [agentForwarding, setAgentForwarding] = useState(false);
   const [compression, setCompression] = useState(false);
+  const [compatLegacy, setCompatLegacy] = useState(false);
   const [serverAliveInterval, setServerAliveInterval] = useState("0");
   const [extraArgs, setExtraArgs] = useState("");
   const [advancedOpen, setAdvancedOpen] = useState(false);
@@ -50,6 +51,7 @@ export default function ProfileDialog({ open, onClose, onSave, profile, backLabe
       setIsDefault(!!profile.is_default);
       setAgentForwarding(!!profile.agent_forwarding);
       setCompression(!!profile.compression);
+      setCompatLegacy(!!profile.compat_legacy);
       setServerAliveInterval(String(profile.server_alive_interval || 0));
       setExtraArgs(profile.extra_args || "");
     } else {
@@ -63,6 +65,7 @@ export default function ProfileDialog({ open, onClose, onSave, profile, backLabe
       setIsDefault(false);
       setAgentForwarding(false);
       setCompression(false);
+      setCompatLegacy(false);
       setServerAliveInterval("0");
       setExtraArgs("");
     }
@@ -136,6 +139,7 @@ export default function ProfileDialog({ open, onClose, onSave, profile, backLabe
       is_default: isDefault ? 1 : 0,
       agent_forwarding: agentForwarding ? 1 : 0,
       compression: compression ? 1 : 0,
+      compat_legacy: compatLegacy ? 1 : 0,
       server_alive_interval: parseInt(serverAliveInterval) || 0,
       extra_args: extraArgs.trim() || null,
     };
@@ -331,6 +335,13 @@ export default function ProfileDialog({ open, onClose, onSave, profile, backLabe
                 onChange={setCompression}
                 colorHex={colorHex}
               />
+              <Toggle
+                label="Legacy SSH compatibility"
+                description="Enable old KEX / host-key / cipher / MAC algorithms required by network gear (Arista, ADVA, Cisco IOS, etc.)"
+                checked={compatLegacy}
+                onChange={setCompatLegacy}
+                colorHex={colorHex}
+              />
               <div className="space-y-1.5">
                 <Label className="text-[12.5px] font-semibold" style={{ color: "var(--muted-fg)" }}>Keepalive interval (seconds)</Label>
                 <Input type="number" min={0} placeholder="0 = off" value={serverAliveInterval} onChange={e => setServerAliveInterval(e.target.value)} />
@@ -338,6 +349,9 @@ export default function ProfileDialog({ open, onClose, onSave, profile, backLabe
               <div className="space-y-1.5">
                 <Label className="text-[12.5px] font-semibold" style={{ color: "var(--muted-fg)" }}>Extra arguments</Label>
                 <Input placeholder="-o StrictHostKeyChecking=no" value={extraArgs} onChange={e => setExtraArgs(e.target.value)} className="font-mono text-sm" />
+                <p className="text-[11px]" style={{ color: "var(--subtle-fg)" }}>
+                  Only <span className="font-mono">-o Key=Value</span> pairs. Values may include <span className="font-mono">+,@:</span> for algorithm lists.
+                </p>
               </div>
             </div>
           )}

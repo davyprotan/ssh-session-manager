@@ -26,6 +26,9 @@ export interface Profile {
   server_alive_interval: number;
   extra_args?: string | null;
   uses_keychain: number;
+  /** When 1, ssh is invoked with legacy KEX/host-key/cipher/MAC algorithms
+   *  appended to the defaults. For old network gear (Arista, ADVA, Cisco). */
+  compat_legacy?: number;
   created_at: string;
   updated_at: string;
 }
