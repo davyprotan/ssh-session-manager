@@ -2,6 +2,55 @@
 
 All notable changes to **SSH Manager**.
 
+## [0.9.17] — 2026-05-08
+
+### Security hardening pass
+
+Defense-in-depth changes from a full-codebase audit. No known exploits were
+in use; these close gaps that would matter if combined with a future renderer
+compromise or a same-machine non-browser attacker.
+
+#### HTTP boundary
+- **`/api/profiles/[id]/secret` now uses `assertSafeRead`** instead of
+  `assertSafeOrigin`. The previous guard skipped the Origin/Referer check on
+  GET — mostly mitigated for browser CSRF by CORS, but the secret-reveal
+  endpoint shouldn't have relied on that.
+- **`/api/probe`** is now rate-limited to 60 probes/minute per process and
+  rejects cloud-instance metadata addresses (169.254.0.0/16 link-local,
+  `metadata.google.internal`, `fd00:ec2::254`).
+- **`/api/validate-key`** now resolves symlinks via `realpath` and re-checks
+  the result is inside `~/.ssh/`. A symlink under `~/.ssh/` pointing
+  elsewhere previously would have served as a same-machine file-existence
+  oracle.
+
+#### Backup envelope
+- **AES-GCM AAD now binds envelope metadata** (`format`, `version`,
+  `kdf_params`, `salt`, `iv`) to the auth tag. Bumped envelope version to 2;
+  v1 envelopes still decrypt for backwards compatibility.
+- **12-character minimum password** is now asserted inside `encryptPayload`
+  in addition to the API layer.
+
+#### `extra_args` allowlist
+- The `-o Key=Value` pairs accepted in profile `extra_args` now go through a
+  key allowlist (see `SAFE_EXTRA_ARG_KEYS` in `src/lib/ssh-command.ts`).
+  Previously any alphanumeric key was accepted, which meant
+  `-o ProxyCommand=…`, `-o LocalCommand=…`, `-o IdentityAgent=…`, and similar
+  options that route values through `/bin/sh -c` could be smuggled into a
+  stored profile.
+- **Migration note:** profiles with disallowed `-o` keys will now refuse to
+  connect with `extra_args` rejected. Move ProxyCommand-style needs to
+  ProxyJump (the dedicated jump-host field) or remove them.
+
+#### Electron host
+- **Renderer is now sandboxed** (`sandbox: true`). The preload script only
+  uses `contextBridge`/`ipcRenderer`, both available in sandbox mode.
+- **In-page navigation is pinned to APP_URL** via `will-navigate`. Any link
+  that would replace the renderer with a foreign origin is intercepted and
+  opened in the system browser instead.
+- **App resources are now packaged into ASAR** (`asar: true`) with native
+  modules (`better-sqlite3`, `keytar`, `node-pty`) unpacked. Raises the bar
+  for in-place tampering of shipped JavaScript.
+
 ## [0.9.16] — 2026-05-08
 
 ### Fix: editing a profile no longer breaks its keychain link

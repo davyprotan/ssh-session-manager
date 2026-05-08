@@ -1,6 +1,8 @@
 // Lightweight, dependency-free body validators.
 // Each parser returns a typed object or throws ValidationError.
 
+import { parseExtraArgs } from './ssh-command';
+
 export class ValidationError extends Error {
   status = 400;
 }
@@ -85,13 +87,15 @@ function keyPath(v: unknown): string | null {
   return p;
 }
 
-// Extra args — allowlist of `-o Key=Value` pairs only
+// Extra args — allowlist of `-o Key=Value` pairs, key must be in the safe-keys
+// allowlist defined in ssh-command.ts. See parseExtraArgs for the rules.
 function extraArgs(v: unknown): string | null {
   if (v == null || v === '') return null;
   const t = s(v, 1024).trim();
   if (!t) return null;
-  if (!/^(\s*-o\s+[A-Za-z0-9]+(?:=[A-Za-z0-9._\-/+,@:]*)?)+\s*$/.test(t)) {
-    throw new ValidationError('extra_args must be one or more "-o Key=Value" pairs');
+  const parsed = parseExtraArgs(t);
+  if (!parsed.ok) {
+    throw new ValidationError(`invalid extra_args: ${parsed.error || 'rejected'}`);
   }
   return t;
 }
