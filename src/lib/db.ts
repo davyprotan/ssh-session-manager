@@ -50,6 +50,8 @@ export function getDb(): Database.Database {
         catch (e) { console.warn('plaintext→keychain migration failed:', e); }
         try { await relinkOrphanedKeychainProfiles(); }
         catch (e) { console.warn('keychain relink failed:', e); }
+        try { scrubPlaintextFromPreMigrationSnapshots(); }
+        catch (e) { console.warn('snapshot scrub failed:', e); }
       })();
     });
   }
@@ -297,6 +299,93 @@ async function relinkOrphanedKeychainProfiles(): Promise<void> {
 
   if (relinked > 0) {
     console.log(`[ssh-manager] re-linked ${relinked} profile(s) to existing keychain entries`);
+  }
+}
+
+/**
+ * Pre-migration snapshots are taken before any schema migration runs. For
+ * users upgrading from v0.7.x — when passwords still lived in the `password`
+ * column as plaintext — those snapshots permanently retain plaintext on disk
+ * even after the live DB is migrated into the OS keychain.
+ *
+ * Once the live DB no longer contains any plaintext (i.e. the
+ * plaintext→keychain migration has fully succeeded), we open every
+ * `pre-migration_*.db` snapshot in the backups directory, NULL the
+ * `password` column, then VACUUM so freed pages are released — leaving no
+ * trace of the cleartext on disk. WAL/SHM sidecar files are removed.
+ *
+ * Idempotent — safe to re-run on every startup. If keychain migration is
+ * still incomplete (any plaintext rows in live DB), we leave snapshots alone
+ * so they remain available for recovery.
+ */
+function scrubPlaintextFromPreMigrationSnapshots(): void {
+  if (!_db) return;
+
+  // Bail if any plaintext remains in the live DB — the snapshot is still a
+  // valid recovery point in that case.
+  const leftover = _db
+    .prepare("SELECT COUNT(*) as n FROM profiles WHERE password IS NOT NULL AND password != ''")
+    .get() as { n: number };
+  if (leftover.n > 0) return;
+
+  let snapNames: string[];
+  try {
+    snapNames = fs
+      .readdirSync(BACKUPS_DIR)
+      .filter((n) => n.startsWith('pre-migration_') && n.endsWith('.db'));
+  } catch {
+    return;
+  }
+  if (snapNames.length === 0) return;
+
+  let scrubbedFiles = 0;
+  let scrubbedRows = 0;
+
+  for (const name of snapNames) {
+    const snapPath = path.join(BACKUPS_DIR, name);
+    let snap: Database.Database | null = null;
+    try {
+      snap = new Database(snapPath);
+      const cols = snap.prepare('PRAGMA table_info(profiles)').all() as { name: string }[];
+      const hasPasswordCol = cols.some((c) => c.name === 'password');
+      if (!hasPasswordCol) {
+        snap.close();
+        snap = null;
+        continue;
+      }
+      const result = snap
+        .prepare("UPDATE profiles SET password = NULL WHERE password IS NOT NULL AND password != ''")
+        .run();
+      if (result.changes > 0) {
+        // VACUUM rebuilds the file so freed pages (which still hold the old
+        // plaintext bytes) are dropped rather than left as slack space.
+        snap.exec('VACUUM');
+        scrubbedFiles++;
+        scrubbedRows += result.changes;
+      }
+      snap.close();
+      snap = null;
+      // Drop WAL/SHM sidecars — VACUUM checkpoints, but leftover files would
+      // still be on disk and might confuse later opens.
+      for (const ext of ['-wal', '-shm']) {
+        try { fs.unlinkSync(snapPath + ext); } catch { /* fine if missing */ }
+      }
+    } catch (e) {
+      try { snap?.close(); } catch { /* ignore */ }
+      console.warn(`failed to scrub snapshot ${name}:`, e);
+    }
+  }
+
+  if (scrubbedRows > 0) {
+    console.log(`[ssh-manager] scrubbed ${scrubbedRows} plaintext password(s) from ${scrubbedFiles} pre-migration snapshot(s)`);
+    // Audit log — uses the live DB. Kept minimal: count, not file names.
+    try {
+      _db
+        .prepare("INSERT INTO audit_log (event, target_type, target_id, target_label, details) VALUES (?, NULL, NULL, NULL, ?)")
+        .run('snapshot.plaintext_scrubbed', JSON.stringify({ files: scrubbedFiles, rows: scrubbedRows }));
+    } catch {
+      // audit_log failure shouldn't block the rest of startup
+    }
   }
 }
 

@@ -2,6 +2,39 @@
 
 All notable changes to **SSH Manager**.
 
+## [0.9.18] — 2026-05-08
+
+Follow-up to v0.9.17's security pass. Three changes — one defensive, one
+hardening of the upgrade path, one walk-back of v0.9.17's ASAR change that
+broke the macOS build.
+
+### Drop `allow-dyld-environment-variables` entitlement
+Removed `com.apple.security.cs.allow-dyld-environment-variables` from the
+Hardened Runtime entitlements. Modern Electron does not require it for
+normal operation and dropping it shrinks the DYLD-injection surface.
+Verified by a clean `npm run electron:mac` build and launch.
+
+### Scrub plaintext from pre-migration snapshots
+Pre-migration `.db` snapshots taken when upgrading from v0.7.x retained the
+legacy `password` column with plaintext credentials, even after the live DB
+was migrated into the OS keychain.
+
+After a successful plaintext→keychain migration (live DB has zero
+non-empty `password` rows), we now open every `pre-migration_*.db`
+snapshot, NULL the `password` column, `VACUUM` so freed pages are
+released, and remove WAL/SHM sidecar files. The scrub is idempotent and
+audit-logged as `snapshot.plaintext_scrubbed`.
+
+If the keychain migration is incomplete (any plaintext rows still in the
+live DB), snapshots are left alone — they remain a valid recovery point.
+
+### Revert ASAR packaging from v0.9.17
+v0.9.17 set `asar: true` to raise the bar for in-place tampering of shipped
+JavaScript. The `electron-builder` `files` glob in this project doesn't
+include `package.json` at the asar root, which broke the macOS build. The
+revert is intentional pending a proper rework of the build config; the
+non-ASAR `electron:mac` build is verified clean here.
+
 ## [0.9.17] — 2026-05-08
 
 ### Security hardening pass
@@ -47,9 +80,10 @@ compromise or a same-machine non-browser attacker.
 - **In-page navigation is pinned to APP_URL** via `will-navigate`. Any link
   that would replace the renderer with a foreign origin is intercepted and
   opened in the system browser instead.
-- **App resources are now packaged into ASAR** (`asar: true`) with native
-  modules (`better-sqlite3`, `keytar`, `node-pty`) unpacked. Raises the bar
-  for in-place tampering of shipped JavaScript.
+- ~~**App resources are now packaged into ASAR** (`asar: true`) with native
+  modules (`better-sqlite3`, `keytar`, `node-pty`) unpacked.~~ Reverted in
+  v0.9.18 — the `electron-builder` `files` glob in this project requires
+  more rework before ASAR can be safely enabled.
 
 ## [0.9.16] — 2026-05-08
 
