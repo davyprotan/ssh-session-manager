@@ -107,6 +107,28 @@ export default function Terminal({ target, label, onExit, onClose }: Props) {
     const fit = new FitAddon();
     term.loadAddon(fit);
     term.open(containerRef.current);
+
+    // Select-all + copy whole scrollback to clipboard.
+    //   Mac:   Cmd+A
+    //   Other: Ctrl+Shift+A  (plain Ctrl+A is the shell's "beginning of line"
+    //                         and must reach the pty)
+    // We intercept BEFORE xterm forwards the key to the pty by returning
+    // false from the custom key-event handler.
+    const isMac = typeof navigator !== "undefined" && /Mac/i.test(navigator.platform);
+    term.attachCustomKeyEventHandler((e) => {
+      if (e.type !== "keydown") return true;
+      const key = e.key.toLowerCase();
+      const selectAll = isMac
+        ? e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey && key === "a"
+        : e.ctrlKey && e.shiftKey && !e.metaKey && !e.altKey && key === "a";
+      if (!selectAll) return true;
+      try {
+        term.selectAll();
+        const sel = term.getSelection();
+        if (sel) void navigator.clipboard.writeText(sel);
+      } catch { /* ignore */ }
+      return false;
+    });
     // Canvas renderer is much faster than the default DOM renderer for
     // typical SSH workloads (logs, file lists, etc). Loaded after open()
     // because Canvas needs the host element to size against.

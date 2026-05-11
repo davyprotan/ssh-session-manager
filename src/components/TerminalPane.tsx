@@ -4,7 +4,7 @@
 // bottom of the dashboard. Phase 1 ships single-tab; Phase 3 turns this into
 // a real multi-tab strip.
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Terminal, { type TerminalTarget } from "./Terminal";
 import { Terminal as TerminalIcon, X, ChevronDown, ChevronUp } from "lucide-react";
 
@@ -30,11 +30,27 @@ interface Props {
 export default function TerminalPane({ terminals, onCloseTab, onCloseAll, stretched = false, emptyState }: Props) {
   const [activeKey, setActiveKey] = useState<string | null>(terminals[0]?.key ?? null);
   const [collapsed, setCollapsed] = useState(false);
+  // Track which keys we've already seen so we can detect "a new terminal was
+  // just opened" vs "an existing one was closed".
+  const prevKeysRef = useRef<string[]>(terminals.map((t) => t.key));
 
-  // Keep activeKey valid as terminals change.
+  // Keep activeKey valid as terminals change, and focus newly-opened tabs so
+  // the user lands on the connection they just started.
   useEffect(() => {
+    const prevKeys = prevKeysRef.current;
+    const curKeys = terminals.map((t) => t.key);
+    const added = curKeys.filter((k) => !prevKeys.includes(k));
+    prevKeysRef.current = curKeys;
+
     if (terminals.length === 0) {
       setActiveKey(null);
+      return;
+    }
+    if (added.length > 0) {
+      // Focus the most recently opened one. Also un-collapse so the user
+      // actually sees it (otherwise the new tab opens behind the chevron).
+      setActiveKey(added[added.length - 1]);
+      setCollapsed(false);
       return;
     }
     if (!terminals.some((t) => t.key === activeKey)) {

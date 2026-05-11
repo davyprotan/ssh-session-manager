@@ -2,6 +2,19 @@
 
 All notable changes to **SSH Manager**.
 
+## [0.9.19] — 2026-05-09
+
+### Built-in terminal: Cmd+A copies the whole scrollback
+Pressing **Cmd+A** (macOS) or **Ctrl+Shift+A** (Linux/Windows) in a terminal
+pane now selects the entire scrollback buffer and copies it to the
+clipboard in one step. Plain Ctrl+A still reaches the shell as
+`beginning-of-line` — only the modifier-combo above is intercepted.
+
+### Built-in terminal: new sessions auto-focus their tab
+Opening a new SSH session now switches the active tab to it instead of
+leaving the previously-active tab in front. If the terminal strip is
+collapsed, it expands automatically so the new tab is visible.
+
 ## [0.9.18] — 2026-05-08
 
 Follow-up to v0.9.17's security pass. Three changes — one defensive, one
