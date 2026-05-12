@@ -35,6 +35,31 @@ process.on('unhandledRejection', (reason) => {
 const APP_PORT = 3005;
 const APP_URL = `http://127.0.0.1:${APP_PORT}`;
 
+// Enforce a single SSH Manager instance per user.
+//
+// Without this, two main processes can coexist — one from a normal Launchpad
+// open, one from a developer running `./SSH Manager` directly, or one left
+// over after a crashed quit. Each main has its OWN per-launch
+// SSH_MANAGER_INTERNAL_TOKEN, but only ONE next-server can hold port 3005 at a
+// time. Whichever main's renderer the user is interacting with sends API
+// requests with ITS token; if the server was spawned by the OTHER main,
+// `/api/internal/*` returns 403.
+//
+// The singleton lock pins instance-1 as the only legitimate main. Subsequent
+// launches receive 'second-instance' and quit themselves after asking the
+// existing instance to surface its window.
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+if (!gotSingleInstanceLock) {
+  app.quit();
+  return;
+}
+app.on('second-instance', () => {
+  if (!mainWindow) return;
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.show();
+  mainWindow.focus();
+});
+
 // Random per-launch token gating /api/_internal/* routes (e.g. spawn-plan)
 // AND the in-process keychain delegation server. Generated here, passed to
 // Next.js via env, never sent to the renderer.
