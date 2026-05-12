@@ -6,6 +6,32 @@ const http = require('http');
 const ptyManager = require('./pty-manager');
 const keychainServer = require('./keychain-server');
 
+// Process-level safety nets.
+//
+// `keytar.node` (the macOS keychain binding) can throw a NAPI C++ exception
+// that escapes the JavaScript try/catch in keychain-server.js — the throw
+// happens synchronously inside the NAPI callback BEFORE `await` converts it
+// to a promise rejection. libc++abi then calls std::terminate() and the
+// whole Electron main process abort()s.
+//
+// Confirmed in v0.9.16 crash report — keytar.node frames terminating with
+// __cxa_throw → _objc_terminate → abort. Likely triggered when the
+// macOS keychain prompt is dismissed/timed-out or the requested item is in
+// an unexpected state (e.g. wrong ACL after a code-signing-hash change on
+// upgrade).
+//
+// We can't fix the upstream keytar bug here, but we can prevent the abort:
+// route every uncaught exception and unhandled rejection through a logger
+// so the app stays alive. Any individual keychain operation that triggered
+// the throw still fails (the affected request returns 500 from
+// keychain-server), but the user can retry.
+process.on('uncaughtException', (err) => {
+  console.error('[main] uncaughtException — preventing abort:', err?.stack || err?.message || err);
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('[main] unhandledRejection:', reason && (reason.stack || reason.message || reason));
+});
+
 const APP_PORT = 3005;
 const APP_URL = `http://127.0.0.1:${APP_PORT}`;
 
@@ -38,10 +64,85 @@ function isServerUp() {
   });
 }
 
+/**
+ * Probe /api/internal/health with the current launch's INTERNAL_TOKEN. The
+ * server listening on APP_PORT belongs to THIS launch only if it returns
+ * 200 from that endpoint.
+ *
+ * Returns 'ours' if a 200 came back, 'stranger' for literally anything else
+ * (older versions of our own server that pre-date the health endpoint
+ * return 404; an orphan with a stale token returns 403; an unrelated
+ * service returns whatever). In packaged mode we treat 'stranger' as
+ * "reclaim the port" — the only thing that should ever own 3005 in a
+ * packaged install is us.
+ */
+function probeServerOwnership() {
+  return new Promise((resolve) => {
+    const req = http.get(`${APP_URL}/api/internal/health`, {
+      headers: { 'x-internal-token': INTERNAL_TOKEN },
+    }, (res) => {
+      res.resume();
+      resolve(res.statusCode === 200 ? 'ours' : 'stranger');
+    });
+    req.on('error', () => resolve('stranger'));
+    req.setTimeout(1500, () => { req.destroy(); resolve('stranger'); });
+  });
+}
+
+/**
+ * Best-effort kill of any process listening on APP_PORT. macOS/Linux uses
+ * `lsof`; Windows uses `netstat`. We send SIGKILL because we already know it
+ * isn't ours and we need the port free before our new server can bind.
+ *
+ * Returns true if at least one process was successfully signalled.
+ */
+function killProcessesOnPort(port) {
+  return new Promise((resolve) => {
+    const { execFile } = require('child_process');
+    if (process.platform === 'win32') {
+      execFile('netstat', ['-ano', '-p', 'TCP'], (err, stdout) => {
+        if (err) return resolve(false);
+        const pids = new Set();
+        for (const line of String(stdout).split(/\r?\n/)) {
+          const m = line.match(/:\s*(\d+)\s+.*\s+LISTENING\s+(\d+)\s*$/);
+          if (m && Number(m[1]) === port) pids.add(Number(m[2]));
+        }
+        if (pids.size === 0) return resolve(false);
+        for (const pid of pids) {
+          try { process.kill(pid); } catch { /* ignore */ }
+        }
+        resolve(true);
+      });
+    } else {
+      execFile('lsof', ['-ti', `tcp:${port}`], (err, stdout) => {
+        if (err) return resolve(false);
+        const pids = String(stdout).split(/\s+/).filter(Boolean).map(Number).filter((n) => Number.isInteger(n) && n > 0 && n !== process.pid);
+        if (pids.length === 0) return resolve(false);
+        for (const pid of pids) {
+          try { process.kill(pid, 'SIGKILL'); } catch { /* ignore */ }
+        }
+        resolve(true);
+      });
+    }
+  });
+}
+
 async function waitForServer(maxAttempts = 60) {
   for (let i = 0; i < maxAttempts; i++) {
     if (await isServerUp()) return true;
     await new Promise((r) => setTimeout(r, 500));
+  }
+  return false;
+}
+
+/**
+ * Wait for the health endpoint to return 'ours'. Polls every 250ms.
+ * Returns true once verified, false if exhausted.
+ */
+async function waitForOwnership(maxAttempts = 80) {
+  for (let i = 0; i < maxAttempts; i++) {
+    if ((await probeServerOwnership()) === 'ours') return true;
+    await new Promise((r) => setTimeout(r, 250));
   }
   return false;
 }
@@ -209,15 +310,63 @@ app.whenReady().then(async () => {
     internalToken: INTERNAL_TOKEN,
   });
 
-  // Start server if not already running, then show window
-  const alreadyUp = await isServerUp();
-  if (!alreadyUp) startServer();
+  // Server boot sequence.
+  //
+  // Naive logic ("if port 3005 is in use, reuse it") would silently inherit a
+  // stale next-server orphaned by a previous Electron launch. Each launch
+  // generates a fresh SSH_MANAGER_INTERNAL_TOKEN — the orphan has the old one,
+  // so every /api/internal/* call from this launch's pty-manager comes back
+  // 403 "Forbidden". Quick Connect was broken in that state.
+  //
+  // In packaged mode we verify the running server is ours via a tiny
+  // /api/internal/health probe (200 = ours; anything else = stranger). Older
+  // versions of our own server that pre-date this endpoint also probe as
+  // 'stranger' — that's fine, we want to reclaim the port from them too. The
+  // only legitimate holder of 3005 in a packaged install is the current
+  // launch.
+  //
+  // In dev mode we preserve the original behaviour: share whatever
+  // `npm run dev` server is up, even though /api/internal/* won't work there.
+  // Anyone running `npm run dev` separately is testing browser-side flows.
+  if (app.isPackaged) {
+    if (await isServerUp()) {
+      const ownership = await probeServerOwnership();
+      if (ownership !== 'ours') {
+        console.warn(`[main] port ${APP_PORT} is held by another process; reclaiming`);
+        const killed = await killProcessesOnPort(APP_PORT);
+        if (!killed) {
+          console.error('[main] failed to free port 3005 — kill returned no PIDs');
+        }
+        // Give the kernel a moment to release the port.
+        await new Promise((r) => setTimeout(r, 400));
+        startServer();
+      }
+      // ownership === 'ours' → leave the running server alone
+    } else {
+      startServer();
+    }
+  } else {
+    if (!(await isServerUp())) startServer();
+  }
 
   const ready = await waitForServer();
   if (!ready) {
     console.error('Server failed to become ready');
     app.quit();
     return;
+  }
+
+  // In packaged mode, confirm the server we just connected to is actually
+  // ours. If `startServer()` lost a race against a foreign process binding
+  // 3005 between `killProcessesOnPort` and `spawn`, we'd otherwise quietly
+  // hand pty-manager a server that doesn't share our token.
+  if (app.isPackaged) {
+    const verified = await waitForOwnership();
+    if (!verified) {
+      console.error('[main] server is up but does not recognise our internal token');
+      app.quit();
+      return;
+    }
   }
 
   createWindow();

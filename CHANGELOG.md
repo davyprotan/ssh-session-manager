@@ -2,6 +2,70 @@
 
 All notable changes to **SSH Manager**.
 
+## [0.9.20] — 2026-05-12
+
+### Fix: keytar NAPI throw crashes the app
+A NAPI C++ exception from `keytar.node` (typically when the macOS keychain
+prompt is dismissed/timed-out or the keychain ACL changed across an
+upgrade) escapes the `try/catch` in `keychain-server.js` because the throw
+is synchronous inside the NAPI callback — before `await` would have
+converted it to a promise rejection. libc++abi then calls
+`std::terminate()` and the whole Electron main process aborts.
+
+Confirmed by a v0.9.16 crash report: keytar.node frames terminating with
+`__cxa_throw` → `_objc_terminate` → `abort`.
+
+We can't fix the upstream keytar bug, but `main.js` now installs
+`uncaughtException` and `unhandledRejection` handlers that log and keep
+the app alive. The individual keychain operation that triggered the throw
+still fails (the affected HTTP request returns 500 to its caller), but
+the user can retry rather than losing the whole session.
+
+### Fix: Quick Connect 403 after a previous launch left a stale server
+
+#### The bug
+Each Electron launch generates a fresh `SSH_MANAGER_INTERNAL_TOKEN` and
+spawns its own `next-server` with that token in env. The previous
+`main.js` would reuse whatever server was already listening on port 3005:
+
+```js
+const alreadyUp = await isServerUp();
+if (!alreadyUp) startServer();
+```
+
+If a prior launch crashed, was force-quit, or otherwise didn't unwind
+cleanly (the existing `killServer()` uses `process.kill(-pid)`, which only
+works when the child is a process-group leader — it isn't, since `spawn`
+isn't called with `detached: true`), the `next-server` survives as an
+orphan with the **old** token in its env. Every `/api/internal/*` call
+from the new launch's pty-manager then comes back **403 Forbidden** — the
+running server enforces a token the new main process doesn't know.
+
+The user-visible symptom was Quick Connect failing with
+`/api/internal/spawn-plan-ad-hoc 403: Forbidden`.
+
+#### Fix
+New `/api/internal/health` endpoint returns 200 only when called with the
+current launch's `SSH_MANAGER_INTERNAL_TOKEN`. `main.js` probes it on
+boot:
+
+- 200 → the running server is ours; reuse.
+- Anything else (403 stale-token, 404 from an older-version orphan that
+  pre-dates this endpoint, connect-error, timeout, …) → reclaim the port
+  via `lsof -ti tcp:3005 | xargs kill -9` (`netstat -ano` on Windows) and
+  spawn a fresh server under our env.
+
+The dance only runs in packaged mode (`app.isPackaged`). Dev mode keeps
+the original behaviour of sharing whatever `npm run dev` server is up, by
+design.
+
+#### Verified in the wild
+Confirmed on the reporter's machine: TWO orphaned next-server processes
+were running from previous crashed launches (one Next 16.2.4 from a
+recent app version, one 16.1.6 even older). The newer one was holding
+port 3005, which is exactly the state that produced the 403 on Quick
+Connect.
+
 ## [0.9.19] — 2026-05-09
 
 ### Built-in terminal: Cmd+A copies the whole scrollback
