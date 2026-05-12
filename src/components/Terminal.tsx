@@ -108,26 +108,37 @@ export default function Terminal({ target, label, onExit, onClose }: Props) {
     term.loadAddon(fit);
     term.open(containerRef.current);
 
-    // Select-all + copy whole scrollback to clipboard.
-    //   Mac:   Cmd+A
-    //   Other: Ctrl+Shift+A  (plain Ctrl+A is the shell's "beginning of line"
-    //                         and must reach the pty)
-    // We intercept BEFORE xterm forwards the key to the pty by returning
-    // false from the custom key-event handler.
+    // Local-only keyboard shortcuts intercepted BEFORE xterm forwards the
+    // key to the pty. Return false to swallow; return true to pass through.
+    //
+    //   Cmd+A   (Mac) / Ctrl+Shift+A (other) → select-all + copy scrollback
+    //   Cmd+K   (Mac) / Ctrl+Shift+K (other) → clear scrollback buffer
+    //
+    // Plain Ctrl+A / Ctrl+K are left alone — the shell uses them as
+    // beginning-of-line and kill-to-end-of-line, so stealing them would
+    // break standard line editing.
     const isMac = typeof navigator !== "undefined" && /Mac/i.test(navigator.platform);
     term.attachCustomKeyEventHandler((e) => {
       if (e.type !== "keydown") return true;
       const key = e.key.toLowerCase();
-      const selectAll = isMac
-        ? e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey && key === "a"
-        : e.ctrlKey && e.shiftKey && !e.metaKey && !e.altKey && key === "a";
-      if (!selectAll) return true;
-      try {
-        term.selectAll();
-        const sel = term.getSelection();
-        if (sel) void navigator.clipboard.writeText(sel);
-      } catch { /* ignore */ }
-      return false;
+      const macCombo = e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey;
+      const otherCombo = e.ctrlKey && e.shiftKey && !e.metaKey && !e.altKey;
+      const combo = isMac ? macCombo : otherCombo;
+      if (!combo) return true;
+
+      if (key === "a") {
+        try {
+          term.selectAll();
+          const sel = term.getSelection();
+          if (sel) void navigator.clipboard.writeText(sel);
+        } catch { /* ignore */ }
+        return false;
+      }
+      if (key === "k") {
+        try { term.clear(); } catch { /* ignore */ }
+        return false;
+      }
+      return true;
     });
     // Canvas renderer is much faster than the default DOM renderer for
     // typical SSH workloads (logs, file lists, etc). Loaded after open()

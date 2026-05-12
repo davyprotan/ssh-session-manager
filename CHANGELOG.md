@@ -2,6 +2,18 @@
 
 All notable changes to **SSH Manager**.
 
+## [0.9.23] — 2026-05-12
+
+### Built-in terminal: Cmd+K clears the scrollback buffer
+Pressing **Cmd+K** (macOS) or **Ctrl+Shift+K** (Linux/Windows) in a
+terminal pane clears the entire xterm scrollback while leaving the
+active prompt line in place — matching the convention from Terminal.app
+and iTerm2.
+
+Plain Ctrl+K still reaches the shell as `kill-to-end-of-line`; only the
+modifier combo above is intercepted, same approach as Cmd+A from
+v0.9.19.
+
 ## [0.9.22] — 2026-05-12
 
 ### Fix: enforce single SSH Manager instance to stop cross-main token mismatch
