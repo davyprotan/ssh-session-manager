@@ -1,6 +1,6 @@
 {
   "name": "ssh-session-manager",
-  "version": "0.9.20",
+  "version": "0.9.21",
   "private": true,
   "main": "electron/main.js",
   "description": "Local SSH session and credential manager — Next.js + Electron, dark cyan UI",
@@ -22,10 +22,10 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "electron": "electron .",
-    "electron:dev": "NEXT_DISABLE_TURBOPACK=1 next build && electron .",
-    "electron:build": "next build && electron-builder",
-    "electron:mac": "next build && electron-builder --mac",
-    "electron:win": "next build && electron-builder --win"
+    "electron:dev": "npm run build && electron .",
+    "electron:build": "npm run build && electron-builder",
+    "electron:mac": "npm run build && electron-builder --mac",
+    "electron:win": "npm run build && electron-builder --win"
   },
   "dependencies": {
     "@base-ui/react": "^1.4.1",
