@@ -2,6 +2,30 @@
 
 All notable changes to **SSH Manager**.
 
+## [0.9.22] — 2026-05-12
+
+### Fix: enforce single SSH Manager instance to stop cross-main token mismatch
+Two main processes could coexist — a normal Launchpad open plus a copy
+launched directly from the shell, or a launch after a previously-crashed
+quit that didn't fully clean up. Each `main.js` generated its own
+per-launch `SSH_MANAGER_INTERNAL_TOKEN`, but only **one** `next-server`
+could hold port 3005 at a time. Whichever renderer window the user was
+clicking belonged to whichever main, and if it wasn't the main that
+spawned the live server, every `/api/internal/*` call returned **403** —
+including Quick Connect.
+
+Symptom: `/api/internal/spawn-plan-ad-hoc 403: Forbidden` even though
+v0.9.20's orphan-reclaim logic looked fine in isolation.
+
+Fix: `app.requestSingleInstanceLock()` at the very top of `main.js`. If
+the lock is already held, the second instance quits immediately and asks
+the first to focus its window via `app.on('second-instance')`. Combined
+with v0.9.20's orphan-reclaim, the only valid states are now:
+
+- One main, one next-server, tokens match → connect works.
+- Crash recovery: previous main is dead, port held by an orphan → new
+  main reclaims via `lsof -ti tcp:3005 | xargs kill -9` and spawns fresh.
+
 ## [0.9.21] — 2026-05-12
 
 ### Fix: local `electron:mac` / `:build` / `:win` builds produce a broken DMG
