@@ -2,6 +2,34 @@
 
 All notable changes to **SSH Manager**.
 
+## [0.9.21] — 2026-05-12
+
+### Fix: local `electron:mac` / `:build` / `:win` builds produce a broken DMG
+
+The `electron:*` scripts ran `next build` instead of `npm run build`.
+`npm run build` is `next build --webpack`; plain `next build` defaults to
+Turbopack in Next 16. The Turbopack output rewrites server-side externals
+to hashed aliases like `better-sqlite3-90e2652d1716b047`, which the
+runtime can't resolve once the app is packaged:
+
+```
+[server] ⨯ Error: Failed to load external module
+  better-sqlite3-90e2652d1716b047: Cannot find module
+  'better-sqlite3-90e2652d1716b047'
+```
+
+Every API route that touches the DB then returns 500. Profiles and
+sessions appear "lost" in the UI even though `~/.ssh-session-manager/sessions.db`
+is untouched.
+
+The released DMGs on the GitHub Releases page were always fine — CI uses
+`npm run build` explicitly (see `.github/workflows/release.yml`). This
+bug only bit anyone running `npm run electron:mac` (or `:build` / `:win`
+/ `:dev`) locally.
+
+All four `electron:*` scripts now call `npm run build`, so they're
+guaranteed to use the same webpack-mode build path as CI.
+
 ## [0.9.20] — 2026-05-12
 
 ### Fix: keytar NAPI throw crashes the app
