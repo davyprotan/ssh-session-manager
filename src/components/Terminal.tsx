@@ -20,7 +20,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { CanvasAddon } from "@xterm/addon-canvas";
 import "@xterm/xterm/css/xterm.css";
-import { Loader2, AlertCircle, Terminal as TerminalIcon, X } from "lucide-react";
+import { Loader2, AlertCircle, Terminal as TerminalIcon, X, RotateCw } from "lucide-react";
 
 const AUTO_FILL_KEY = "ssh-manager-autofill-enabled";
 const COPY_ON_SELECT_KEY = "ssh-manager-copy-on-select";
@@ -78,6 +78,10 @@ export default function Terminal({ target, label, onExit, onClose }: Props) {
   const fitRef = useRef<FitAddon | null>(null);
   const handleRef = useRef<number | null>(null);
   const unsubsRef = useRef<Array<() => void>>([]);
+  // Imperative reconnect handle, wired inside the main effect so the
+  // Reconnect button can re-spawn the pty without tearing down the xterm
+  // instance (and therefore without losing scrollback).
+  const reconnectRef = useRef<(() => void) | null>(null);
   const [state, setState] = useState<ConnState>({ phase: "idle" });
 
   useEffect(() => {
@@ -216,8 +220,6 @@ export default function Terminal({ target, label, onExit, onClose }: Props) {
     // still tears the listener down.
     unsubsRef.current.push(() => earlyOnResize.dispose());
 
-    // Initial fit + initial connect. Defer the spawn until the renderer's
-    // web fonts are loaded so the first fit() uses the real cell width.
     setState({ phase: "connecting" });
     let aborted = false;
 
@@ -225,10 +227,39 @@ export default function Terminal({ target, label, onExit, onClose }: Props) {
       ? document.fonts.ready.catch(() => undefined)
       : Promise.resolve();
 
-    void fontsReady.then(() => {
+    // Per-connection cleanups (data/exit/input handlers). Reset on each
+    // reconnect — the earlyOnResize listener above lives for the whole
+    // xterm lifetime and is NOT in here.
+    const connectHandlers: Array<() => void> = [];
+    function disposeConnectHandlers() {
+      for (const off of connectHandlers) {
+        try { off(); } catch { /* ignore */ }
+      }
+      connectHandlers.length = 0;
+    }
+
+    async function doConnect(isReconnect: boolean): Promise<void> {
+      if (aborted) return;
+      // Re-narrow inside the async closure — TS loses the outer narrow across awaits.
+      if (!bridge) return;
+
+      // Tear down any handlers from the previous (now-dead) pty.
+      disposeConnectHandlers();
+      const oldHandle = ptyHandle;
+      ptyHandle = null;
+      handleRef.current = null;
+      if (oldHandle != null) {
+        bridge.close(oldHandle).catch(() => { /* may already be dead */ });
+      }
+
+      if (isReconnect) {
+        try { term.write("\r\n\x1b[2m── reconnecting ──\x1b[0m\r\n"); } catch { /* ignore */ }
+      }
+      setState({ phase: "connecting" });
+
+      await fontsReady;
       if (aborted) return;
       try { fit.fit(); } catch { /* ignore */ }
-      // After font-ready fit, latestCols/Rows are correct.
 
       const disableAutoFill = !getAutoFillSetting();
       const openCall = target.kind === "session"
@@ -243,51 +274,58 @@ export default function Terminal({ target, label, onExit, onClose }: Props) {
             disableAutoFill,
           });
 
-      openCall.then((res) => {
-        if (aborted) {
-          if (res.ok) bridge.close(res.handle);
-          return;
-        }
-        if (!res.ok) {
-          setState({ phase: "error", error: res.error });
-          return;
-        }
-        const handle = res.handle;
-        handleRef.current = handle;
-        ptyHandle = handle;
-        setState({ phase: "connected", handle, display: res.display });
+      const res = await openCall;
+      if (aborted) {
+        if (res.ok) bridge.close(res.handle).catch(() => { /* ignore */ });
+        return;
+      }
+      if (!res.ok) {
+        setState({ phase: "error", error: res.error });
+        return;
+      }
 
-        // Defensive: if cols/rows drifted between spawn and now (very fast
-        // double-fit, container layout settling), force one resync.
-        if (term.cols !== latestCols || term.rows !== latestRows) {
-          latestCols = term.cols;
-          latestRows = term.rows;
-        }
-        bridge.resize(handle, latestCols, latestRows).catch(() => { /* ignore */ });
+      const handle = res.handle;
+      handleRef.current = handle;
+      ptyHandle = handle;
+      setState({ phase: "connected", handle, display: res.display });
 
-        // Pipe pty data → terminal.
-        const offData = bridge.onData(handle, (chunk) => {
-          // chunk arrives as Uint8Array. xterm.js can write Uint8Array directly.
-          try { term.write(chunk); }
-          catch { term.write(TEXT_DECODER.decode(chunk)); }
-        });
+      // Defensive: if cols/rows drifted between spawn and now (very fast
+      // double-fit, container layout settling), force one resync.
+      if (term.cols !== latestCols || term.rows !== latestRows) {
+        latestCols = term.cols;
+        latestRows = term.rows;
+      }
+      bridge.resize(handle, latestCols, latestRows).catch(() => { /* ignore */ });
 
-        const offExit = bridge.onExit(handle, (info) => {
-          setState({ phase: "exited", exitCode: info.exitCode, signal: info.signal });
-          try {
-            term.write(`\r\n\x1b[2m[disconnected — exit ${info.exitCode}${info.signal ? `, signal ${info.signal}` : ""}]\x1b[0m\r\n`);
-          } catch { /* ignore */ }
-          onExit?.(info);
-        });
-
-        // Pipe terminal input → pty.
-        const offInput = term.onData((data) => {
-          bridge.write(handle, data).catch(() => { /* ignore — pty may be closed */ });
-        });
-
-        unsubsRef.current.push(offData, offExit, () => offInput.dispose());
+      // Pipe pty data → terminal.
+      const offData = bridge.onData(handle, (chunk) => {
+        try { term.write(chunk); }
+        catch { term.write(TEXT_DECODER.decode(chunk)); }
       });
-    });
+
+      const offExit = bridge.onExit(handle, (info) => {
+        setState({ phase: "exited", exitCode: info.exitCode, signal: info.signal });
+        try {
+          term.write(`\r\n\x1b[2m[disconnected — exit ${info.exitCode}${info.signal ? `, signal ${info.signal}` : ""}]\x1b[0m\r\n`);
+        } catch { /* ignore */ }
+        onExit?.(info);
+      });
+
+      // Pipe terminal input → pty.
+      const offInput = term.onData((data) => {
+        bridge.write(handle, data).catch(() => { /* ignore — pty may be closed */ });
+      });
+
+      connectHandlers.push(offData, offExit, () => offInput.dispose());
+    }
+
+    // Expose reconnect to the JSX. The button calls this; the existing
+    // useEffect mount/unmount stays untouched — we never tear down xterm
+    // for a reconnect, so scrollback survives.
+    reconnectRef.current = () => { void doConnect(true); };
+
+    // Kick off the initial connect.
+    void doConnect(false);
 
     // Track outer container size with ResizeObserver. Don't call fit() in a
     // tight loop — debounce a touch via requestAnimationFrame.
@@ -303,13 +341,18 @@ export default function Terminal({ target, label, onExit, onClose }: Props) {
     const cleanupContainer = containerRef.current;
     return () => {
       aborted = true;
+      reconnectRef.current = null;
       ro.disconnect();
       cancelAnimationFrame(raf);
       cleanupContainer?.removeEventListener("mouseup", onMouseUp);
+      // xterm-lifetime listeners (renderer, font-aware onResize)
       for (const off of unsubsRef.current) {
         try { off(); } catch { /* ignore */ }
       }
       unsubsRef.current = [];
+      // Per-connection listeners (data/exit/input) — survives reconnects,
+      // disposed once on unmount.
+      disposeConnectHandlers();
       const h = handleRef.current;
       handleRef.current = null;
       if (h != null && bridge) {
@@ -339,6 +382,22 @@ export default function Terminal({ target, label, onExit, onClose }: Props) {
         <span className="text-[12.5px] font-semibold truncate" style={{ color: "var(--foreground)" }}>{label}</span>
         <StatusPill state={state} />
         <div className="flex-1" />
+        {(state.phase === "exited" || state.phase === "error") && (
+          <button
+            onClick={() => reconnectRef.current?.()}
+            className="inline-flex items-center gap-1 h-6 rounded px-2 text-[11.5px] font-semibold transition-colors"
+            style={{
+              background: "color-mix(in srgb, var(--accent) 12%, transparent)",
+              color: "var(--accent)",
+            }}
+            onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = "color-mix(in srgb, var(--accent) 20%, transparent)"; }}
+            onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = "color-mix(in srgb, var(--accent) 12%, transparent)"; }}
+            title="Reconnect — re-spawn this session without losing scrollback"
+          >
+            <RotateCw className="h-3 w-3" />
+            Reconnect
+          </button>
+        )}
         {onClose && (
           <button
             onClick={onClose}
