@@ -1,6 +1,6 @@
 {
   "name": "ssh-session-manager",
-  "version": "0.9.23",
+  "version": "0.9.24",
   "private": true,
   "main": "electron/main.js",
   "description": "Local SSH session and credential manager — Next.js + Electron, dark cyan UI",
@@ -32,6 +32,7 @@
     "@types/better-sqlite3": "^7.6.13",
     "@xterm/addon-canvas": "^0.7.0",
     "@xterm/addon-fit": "^0.10.0",
+    "@xterm/addon-webgl": "^0.19.0",
     "@xterm/xterm": "^5.5.0",
     "better-sqlite3": "^12.9.0",
     "class-variance-authority": "^0.7.1",

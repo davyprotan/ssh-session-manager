@@ -17,6 +17,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Terminal as XTerm } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
+import { WebglAddon } from "@xterm/addon-webgl";
 import { CanvasAddon } from "@xterm/addon-canvas";
 import "@xterm/xterm/css/xterm.css";
 import { Loader2, AlertCircle, Terminal as TerminalIcon, X } from "lucide-react";
@@ -140,11 +141,35 @@ export default function Terminal({ target, label, onExit, onClose }: Props) {
       }
       return true;
     });
-    // Canvas renderer is much faster than the default DOM renderer for
-    // typical SSH workloads (logs, file lists, etc). Loaded after open()
-    // because Canvas needs the host element to size against.
-    try { term.loadAddon(new CanvasAddon()); }
-    catch (e) { console.warn("CanvasAddon failed, falling back to DOM renderer:", e); }
+    // Renderer ladder: WebGL → Canvas → DOM.
+    //
+    // xterm.js 5.x deprecated CanvasAddon in favour of WebglAddon, which is
+    // both faster and free of the wrap-boundary redraw artifacts CanvasAddon
+    // is known for (the "stray char at column 1 after a wrapped prompt"
+    // glitch users see on long network-device prompts). WebGL is rock-solid
+    // on Apple Silicon Metal and modern Windows/Linux drivers, but can lose
+    // its GPU context under low-power / display-sleep — we handle that by
+    // disposing the addon on `onContextLoss` so xterm falls back to its DOM
+    // pipeline for subsequent renders rather than freezing on a stale
+    // framebuffer.
+    //
+    // If WebGL fails to initialise at all (e.g. headless / WebGL disabled
+    // in some embedded contexts), we try CanvasAddon, then leave DOM.
+    let webglUsed = false;
+    try {
+      const webgl = new WebglAddon();
+      webgl.onContextLoss(() => {
+        try { webgl.dispose(); } catch { /* ignore */ }
+      });
+      term.loadAddon(webgl);
+      webglUsed = true;
+    } catch (e) {
+      console.warn("WebglAddon unavailable, trying CanvasAddon:", e);
+    }
+    if (!webglUsed) {
+      try { term.loadAddon(new CanvasAddon()); }
+      catch (e) { console.warn("CanvasAddon also failed, falling back to DOM renderer:", e); }
+    }
     xtermRef.current = term;
     fitRef.current = fit;
 

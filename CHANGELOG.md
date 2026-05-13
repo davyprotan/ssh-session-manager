@@ -2,6 +2,24 @@
 
 All notable changes to **SSH Manager**.
 
+## [0.9.24] — 2026-05-12
+
+### Fix: stray-character rendering glitch on long prompts
+The built-in terminal used `@xterm/addon-canvas`, which xterm.js
+deprecated in v5.x in favour of `@xterm/addon-webgl`. CanvasAddon has a
+known wrap-boundary redraw bug where, when a prompt wraps past the
+terminal width, typed characters can land in the wrong column on the
+preceding line — e.g. a hostname like
+`AR-7280SR348YC8-I-1-LDP17-GB(...)#` rendering as
+`t -7280SR348YC8-I-1-LDP17-GB(...)#` after typing.
+
+Renderer ladder is now **WebGL → Canvas → DOM**:
+- WebGL primary, with `onContextLoss` dispose so the addon doesn't
+  freeze on a stale framebuffer when macOS reaps the GPU context under
+  low-power / display-sleep.
+- Canvas fallback retained for headless / WebGL-disabled contexts.
+- DOM if both fail.
+
 ## [0.9.23] — 2026-05-12
 
 ### Built-in terminal: Cmd+K clears the scrollback buffer
