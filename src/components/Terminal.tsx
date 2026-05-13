@@ -190,67 +190,103 @@ export default function Terminal({ target, label, onExit, onClose }: Props) {
     };
     containerRef.current.addEventListener("mouseup", onMouseUp);
 
-    // Initial fit + initial connect.
-    fit.fit();
-    const cols = term.cols;
-    const rows = term.rows;
+    // Track the latest cols/rows that xterm believes the grid is.
+    //
+    // Subtle: web fonts (JetBrains Mono) load asynchronously. If the font
+    // isn't ready when we first call `fit.fit()`, xterm computes cell
+    // dimensions from the fallback font. Once the real font loads, the cell
+    // width changes and xterm fires `onResize` with corrected cols. We MUST
+    // capture that even before the pty handle exists, then re-sync the pty
+    // once we have a handle — otherwise the shell believes the terminal is
+    // narrower than xterm renders and `up-arrow` history recall paints over
+    // stale content from the old wrap boundary.
+    let latestCols = 80;
+    let latestRows = 24;
+    let ptyHandle: number | null = null;
+    const earlyOnResize = term.onResize(({ cols: c, rows: r }) => {
+      latestCols = c;
+      latestRows = r;
+      // Once the pty exists, propagate every resize. Before it exists,
+      // we just hold the latest values for the initial spawn.
+      if (ptyHandle != null) {
+        bridge.resize(ptyHandle, c, r).catch(() => { /* ignore */ });
+      }
+    });
+    // Push cleanup immediately so unmount during the async font/spawn dance
+    // still tears the listener down.
+    unsubsRef.current.push(() => earlyOnResize.dispose());
 
+    // Initial fit + initial connect. Defer the spawn until the renderer's
+    // web fonts are loaded so the first fit() uses the real cell width.
     setState({ phase: "connecting" });
-
     let aborted = false;
 
-    const disableAutoFill = !getAutoFillSetting();
-    const openCall = target.kind === "session"
-      ? bridge.open({ sessionId: target.sessionId, cols, rows, disableAutoFill })
-      : bridge.openAdHoc({
-          host: target.host,
-          profileId: target.profileId,
-          port: target.port,
-          jumpHost: target.jumpHost,
-          label,
-          cols, rows,
-          disableAutoFill,
+    const fontsReady: Promise<unknown> = (typeof document !== "undefined" && document.fonts && typeof document.fonts.ready?.then === "function")
+      ? document.fonts.ready.catch(() => undefined)
+      : Promise.resolve();
+
+    void fontsReady.then(() => {
+      if (aborted) return;
+      try { fit.fit(); } catch { /* ignore */ }
+      // After font-ready fit, latestCols/Rows are correct.
+
+      const disableAutoFill = !getAutoFillSetting();
+      const openCall = target.kind === "session"
+        ? bridge.open({ sessionId: target.sessionId, cols: latestCols, rows: latestRows, disableAutoFill })
+        : bridge.openAdHoc({
+            host: target.host,
+            profileId: target.profileId,
+            port: target.port,
+            jumpHost: target.jumpHost,
+            label,
+            cols: latestCols, rows: latestRows,
+            disableAutoFill,
+          });
+
+      openCall.then((res) => {
+        if (aborted) {
+          if (res.ok) bridge.close(res.handle);
+          return;
+        }
+        if (!res.ok) {
+          setState({ phase: "error", error: res.error });
+          return;
+        }
+        const handle = res.handle;
+        handleRef.current = handle;
+        ptyHandle = handle;
+        setState({ phase: "connected", handle, display: res.display });
+
+        // Defensive: if cols/rows drifted between spawn and now (very fast
+        // double-fit, container layout settling), force one resync.
+        if (term.cols !== latestCols || term.rows !== latestRows) {
+          latestCols = term.cols;
+          latestRows = term.rows;
+        }
+        bridge.resize(handle, latestCols, latestRows).catch(() => { /* ignore */ });
+
+        // Pipe pty data → terminal.
+        const offData = bridge.onData(handle, (chunk) => {
+          // chunk arrives as Uint8Array. xterm.js can write Uint8Array directly.
+          try { term.write(chunk); }
+          catch { term.write(TEXT_DECODER.decode(chunk)); }
         });
 
-    openCall.then((res) => {
-      if (aborted) {
-        if (res.ok) bridge.close(res.handle);
-        return;
-      }
-      if (!res.ok) {
-        setState({ phase: "error", error: res.error });
-        return;
-      }
-      const handle = res.handle;
-      handleRef.current = handle;
-      setState({ phase: "connected", handle, display: res.display });
+        const offExit = bridge.onExit(handle, (info) => {
+          setState({ phase: "exited", exitCode: info.exitCode, signal: info.signal });
+          try {
+            term.write(`\r\n\x1b[2m[disconnected — exit ${info.exitCode}${info.signal ? `, signal ${info.signal}` : ""}]\x1b[0m\r\n`);
+          } catch { /* ignore */ }
+          onExit?.(info);
+        });
 
-      // Pipe pty data → terminal.
-      const offData = bridge.onData(handle, (chunk) => {
-        // chunk arrives as Uint8Array. xterm.js can write Uint8Array directly.
-        try { term.write(chunk); }
-        catch { term.write(TEXT_DECODER.decode(chunk)); }
+        // Pipe terminal input → pty.
+        const offInput = term.onData((data) => {
+          bridge.write(handle, data).catch(() => { /* ignore — pty may be closed */ });
+        });
+
+        unsubsRef.current.push(offData, offExit, () => offInput.dispose());
       });
-
-      const offExit = bridge.onExit(handle, (info) => {
-        setState({ phase: "exited", exitCode: info.exitCode, signal: info.signal });
-        try {
-          term.write(`\r\n\x1b[2m[disconnected — exit ${info.exitCode}${info.signal ? `, signal ${info.signal}` : ""}]\x1b[0m\r\n`);
-        } catch { /* ignore */ }
-        onExit?.(info);
-      });
-
-      // Pipe terminal input → pty.
-      const offInput = term.onData((data) => {
-        bridge.write(handle, data).catch(() => { /* ignore — pty may be closed */ });
-      });
-
-      // Resize handling: xterm tells us its new size when fit() runs.
-      const offResize = term.onResize(({ cols: c, rows: r }) => {
-        bridge.resize(handle, c, r).catch(() => { /* ignore */ });
-      });
-
-      unsubsRef.current.push(offData, offExit, () => offInput.dispose(), () => offResize.dispose());
     });
 
     // Track outer container size with ResizeObserver. Don't call fit() in a
