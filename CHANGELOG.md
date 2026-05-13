@@ -2,6 +2,36 @@
 
 All notable changes to **SSH Manager**.
 
+## [0.9.25] — 2026-05-13
+
+### Fix: real cause of wrap-boundary glitch — pty/xterm COLUMNS desync
+v0.9.24's renderer swap didn't fix the bug because the bug isn't in the
+renderer. It's a race between web-font loading and the initial pty
+spawn:
+
+1. `term.open()` runs, xterm computes cell dimensions from the **fallback**
+   font (JetBrains Mono hasn't loaded yet).
+2. `fit.fit()` derives cols/rows from those wrong cell dimensions.
+3. We spawn the pty with cols=X, send X to SSH for window-size negotiation.
+4. JetBrains Mono finishes loading. xterm recomputes cell width, fires its
+   internal `onResize` event with the corrected cols=Y.
+5. **Our `term.onResize` listener wasn't registered yet** — it was set up
+   inside the `openCall.then()` callback, which runs *after* the spawn HTTP
+   round-trip. The font-load event fires and disappears unheard.
+6. Shell on the remote thinks cols=X; xterm renders at cols=Y; up-arrow
+   history recall paints over stale content from the old wrap boundary.
+
+Fix:
+- Register `term.onResize` **before** the spawn so font-load resizes are
+  captured (`latestCols`/`latestRows` buffer).
+- `await document.fonts.ready` before the initial `fit.fit()` so the
+  first cell-size calculation uses the real font.
+- After the spawn returns, force one `bridge.resize(handle, cols, rows)`
+  with the buffered values to guarantee the pty matches xterm.
+
+The shell now agrees with xterm on COLUMNS; history recall, prompt
+redraws, and long-prompt wrapping render correctly.
+
 ## [0.9.24] — 2026-05-12
 
 ### Fix: stray-character rendering glitch on long prompts
