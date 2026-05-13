@@ -2,6 +2,22 @@
 
 All notable changes to **SSH Manager**.
 
+## [0.9.26] — 2026-05-13
+
+### Built-in terminal: Reconnect button
+When an SSH session exits (network drop, `exit`, server kicked you, …)
+the terminal header now shows a **Reconnect** button next to the status
+pill. Clicking it:
+
+- Re-spawns the same target (saved session or ad-hoc) in the same tab.
+- Keeps the xterm instance and its scrollback intact — you can scroll up
+  and read whatever you were doing before the disconnect.
+- Writes a small `── reconnecting ──` separator into the buffer so the
+  boundary is visible.
+
+The button appears in both `exited` and `error` states. If the
+connection fails to re-establish, you can click it again.
+
 ## [0.9.25] — 2026-05-13
 
 ### Fix: real cause of wrap-boundary glitch — pty/xterm COLUMNS desync
