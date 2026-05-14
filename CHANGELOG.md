@@ -2,6 +2,18 @@
 
 All notable changes to **SSH Manager**.
 
+## [0.9.27] — 2026-05-14
+
+### Fix: terminal prompt clipped at window bottom in split (full) layout
+In the split layout the terminal canvas filled all the way to the window
+edge, so when the window reached the bottom of the screen on macOS the
+last row was pressed flush against the edge and the auto-hide Dock could
+overlap the active prompt line.
+
+Added `pb-2` to the xterm container to mirror its existing `pt-1`. Since
+FitAddon snaps to integer row heights, this leaves ~8px of breathing
+room below the last row and keeps the prompt fully visible.
+
 ## [0.9.26] — 2026-05-13
 
 ### Built-in terminal: Reconnect button

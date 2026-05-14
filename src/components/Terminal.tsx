@@ -413,7 +413,7 @@ export default function Terminal({ target, label, onExit, onClose }: Props) {
       </div>
 
       {/* Terminal canvas */}
-      <div ref={containerRef} className="flex-1 min-h-0 px-2 pt-1 overflow-hidden" />
+      <div ref={containerRef} className="flex-1 min-h-0 px-2 pt-1 pb-2 overflow-hidden" />
 
       {state.phase === "error" && (
         <div className="px-3 py-2 text-[12px] flex items-center gap-2 border-t" style={{
