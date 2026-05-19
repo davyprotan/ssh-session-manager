@@ -73,17 +73,32 @@ Grab the latest installer from [Releases](https://github.com/davyprotan/ssh-sess
 
 ### macOS Gatekeeper note
 
-The app is **ad-hoc signed with Hardened Runtime + entitlements** (not Apple-notarized — notarization requires a paid Apple Developer ID). When you download the `.dmg` from a browser, macOS will set the quarantine flag and complain on first launch:
+The app is **ad-hoc signed with Hardened Runtime + entitlements** (not Apple-notarized — notarization requires a paid Apple Developer ID, ~$99/yr). When you download the `.dmg` from a browser, macOS sets the quarantine flag and shows a warning on first launch. The exact wording depends on your macOS version:
 
-> "SSH Manager.app cannot be opened because Apple cannot check it for malicious software."
+- **macOS 15 Sequoia and newer:**
+  > "Apple could not verify 'SSH Manager' is free of malware that may harm your Mac or compromise your privacy."
+- **macOS 14 Sonoma and earlier:**
+  > "SSH Manager.app cannot be opened because Apple cannot check it for malicious software."
 
-You have two options:
+#### How to open it anyway
 
-1. **Right-click → Open** (and click Open again in the dialog) — one-time bypass, works for that machine
-2. **Strip quarantine via Terminal:**
+Pick whichever fits your macOS version:
+
+1. **System Settings → Privacy & Security** *(works on every modern macOS, required on Sequoia+)*
+   - Try to open the app once — let macOS show the warning, then click **Done**.
+   - Open **System Settings → Privacy & Security**, scroll down. You'll see a line like *"SSH Manager was blocked to protect your Mac"* with an **Open Anyway** button.
+   - Click it. macOS may prompt for your password / Touch ID, then ask one more time — choose **Open Anyway**.
+
+2. **Right-click → Open** *(macOS 14 Sonoma and earlier only — removed in Sequoia)*
+   - In Finder, right-click (or Control-click) **SSH Manager.app**, choose **Open**, then **Open** again in the dialog. One-time bypass for that machine.
+
+3. **Strip the quarantine flag via Terminal** *(works on every version)*
    ```sh
-   xattr -cr "/Applications/SSH Manager.app"
+   xattr -dr com.apple.quarantine "/Applications/SSH Manager.app"
    ```
+   This removes the "downloaded from the internet" mark so Gatekeeper stops checking the app. Re-run it after each upgrade — every new `.dmg` you download gets a fresh quarantine flag.
+
+You only need to do this **once per installed version**. Subsequent launches of the same `.app` open normally.
 
 If you build it locally (instructions below) the quarantine flag is never set in the first place.
 

@@ -2,6 +2,46 @@
 
 All notable changes to **SSH Manager**.
 
+## [0.9.34] — 2026-05-19
+
+### Fix: Intel macOS `.dmg` crashed on launch with "Failed to load SWC binary"
+Both v0.9.33 macOS `.dmg`s were built from a single `npm ci` on the
+arm64-by-default `macos-latest` GitHub runner. That install only pulls
+the matching-arch optional dep — `@next/swc-darwin-arm64` — so the
+prod-only `node_modules` staged by `prepare-runtime.mjs` had only the
+arm64 SWC binary. electron-builder then packaged the exact same tree
+into BOTH the x64 and arm64 `.dmg`s. The x64 `.dmg` shipped without a
+loadable SWC binary and crashed on first launch:
+
+```
+⨯ Failed to load SWC binary for darwin/x64
+@next/swc-darwin-x64 ... was not installed
+Server exited with code 1
+```
+
+Electron stayed alive after the Next child died, so users saw "app
+opens, no window" — no obvious error path, easy to misdiagnose as a
+Gatekeeper / quarantine issue.
+
+Fix is in two places:
+
+1. `scripts/prepare-runtime.mjs` now force-installs BOTH macOS SWC
+   binaries at the exact Next version after the prod prune. Two `npm
+   install` calls run against scratch dirs (one per arch) — running
+   them directly against the runtime tree doesn't work because npm
+   normalizes optional deps to the `--cpu` value and the second install
+   strips the first arch back out. The resulting
+   `@next/swc-darwin-<cpu>/` package is then copied into the runtime
+   tree.
+2. `electron/build/afterPack.js` is a new electron-builder hook that
+   deletes the cross-arch SWC package from each per-arch `.app` after
+   packaging. This keeps each `.dmg` at its native size (the SWC
+   binary unpacks to ~115 MB; shipping both in each `.dmg` would nearly
+   double the bundled `node_modules` footprint).
+
+Net effect: each `.dmg` carries only the SWC binary that matches its
+target arch, and both boot cleanly.
+
 ## [0.9.33] — 2026-05-19
 
 ### Fix: macOS Release — properly raise FD limit + filter runtime junk
