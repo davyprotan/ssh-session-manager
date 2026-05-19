@@ -1,6 +1,6 @@
 {
   "name": "ssh-session-manager",
-  "version": "0.9.30",
+  "version": "0.9.31",
   "private": true,
   "main": "electron/main.js",
   "description": "Local SSH session and credential manager — Next.js + Electron, dark cyan UI",
@@ -17,6 +17,7 @@
   "scripts": {
     "dev": "next dev -p 3005 -H 127.0.0.1",
     "build": "next build --webpack",
+    "postbuild": "node -e \"require('fs').copyFileSync('package.json','next-runtime-package.json')\"",
     "start": "next start -p 3005 -H 127.0.0.1",
     "lint": "eslint",
     "test": "vitest run",
@@ -97,7 +98,7 @@
         ]
       },
       {
-        "from": "package.json",
+        "from": "next-runtime-package.json",
         "to": "app/package.json"
       },
       {
@@ -106,8 +107,7 @@
       }
     ],
     "files": [
-      "electron/**/*",
-      "package.json"
+      "electron/**/*"
     ],
     "mac": {
       "category": "public.app-category.developer-tools",

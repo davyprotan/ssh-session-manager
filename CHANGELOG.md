@@ -2,6 +2,31 @@
 
 All notable changes to **SSH Manager**.
 
+## [0.9.31] — 2026-05-19
+
+### Fix: macOS Release build — package.json not landing in app.asar
+Follow-up to 0.9.30. v0.9.30 added `"package.json"` to `build.files`
+hoping electron-builder would pack it into `app.asar`. It still didn't,
+and the build kept failing the asar integrity check.
+
+The real cause (per [electron-builder#4160](https://github.com/electron-userland/electron-builder/issues/4160)):
+when `extraResources` lists `"from": "package.json"`, electron-builder's
+file-set deduplication removes the root `package.json` from the asar's
+input set — the literal source-path string `"package.json"` collides
+with electron-builder's auto-injection logic.
+
+Fix:
+
+1. New `postbuild` script copies `package.json` → `next-runtime-package.json`
+   (gitignored).
+2. The `extraResources` entry now reads from `next-runtime-package.json`
+   instead. Same end file in `Contents/Resources/app/package.json` — but
+   because the `from:` source name is no longer literally `package.json`,
+   electron-builder no longer dedupes the root `package.json` out of the
+   asar input.
+3. The redundant `"package.json"` entry in `files` is removed
+   (electron-builder auto-injects it at `fileMatcher.js:124` anyway).
+
 ## [0.9.30] — 2026-05-19
 
 ### Fix: include `package.json` inside `app.asar`
