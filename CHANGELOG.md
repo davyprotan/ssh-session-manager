@@ -2,6 +2,30 @@
 
 All notable changes to **SSH Manager**.
 
+## [0.9.33] — 2026-05-19
+
+### Fix: macOS Release — properly raise FD limit + filter runtime junk
+v0.9.32 pruned dev dependencies but the build still hit EMFILE, this
+time on `next/dist/server/node-environment-extensions/console-file.d.ts`.
+The prod-only `node_modules` is still huge (Next.js alone is hefty),
+and macOS's per-process file-descriptor cap is binding.
+
+Two fixes:
+
+1. `.github/workflows/release.yml` now raises the kernel maxfiles via
+   `sudo launchctl limit maxfiles 65536 200000` before doing
+   `ulimit -Hn` and `ulimit -Sn`. `ulimit -n` alone is silently
+   clamped to the kernel cap, which is why `v0.9.29`'s naive raise
+   didn't actually take effect. Logs the resulting `ulimit -n` for
+   future debugging.
+2. `extraResources` filter for `node_modules` now excludes runtime-junk:
+   `.d.ts`, source maps, `*.md`, `CHANGELOG*`, `LICENSE.txt`, `.github/`,
+   `.bin/`, `test/`, `tests/`, `__tests__/`, `example*/`. These files
+   serve no purpose at runtime and only inflate the file count the
+   code-signer has to walk.
+
+Together: a smaller tree under a higher cap.
+
 ## [0.9.32] — 2026-05-19
 
 ### Fix: macOS Release — EMFILE during code-sign (again, properly this time)

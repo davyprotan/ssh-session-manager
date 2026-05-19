@@ -47,11 +47,15 @@ jobs:
         if: matrix.target == 'mac'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        # macOS GitHub runners default to ulimit -n 256, which the code-sign
-        # walk blows past while opening every file under Resources/app/. Raise
-        # it inline (must run in the same shell as electron-builder).
+        # macOS GitHub runners default to ulimit -n 256, and `ulimit -n`
+        # alone gets silently clamped to the kernel per-process cap (~24K).
+        # `sudo launchctl limit maxfiles` raises the kernel limit first;
+        # `ulimit -Sn` then takes effect for this shell.
         run: |
-          ulimit -n 65536
+          sudo launchctl limit maxfiles 65536 200000 || true
+          ulimit -Hn 65536 2>/dev/null || true
+          ulimit -Sn 65536
+          echo "ulimit -n is now: $(ulimit -n)"
           npx electron-builder --mac --x64 --arm64 --publish always
 
       - name: Build Electron app (Windows)
