@@ -1,5 +1,7 @@
-const { app, BrowserWindow, shell, Menu } = require('electron');
+const { app, BrowserWindow, shell, Menu, dialog, clipboard } = require('electron');
 const path = require('path');
+const fs = require('fs');
+const os = require('os');
 const crypto = require('crypto');
 const { spawn } = require('child_process');
 const http = require('http');
@@ -74,6 +76,29 @@ let KEYCHAIN_URL = '';
 let mainWindow = null;
 let serverProcess = null;
 let keychainServerHandle = null;
+
+// Ring buffer for the bundled Next server's stdout/stderr. Held so that if
+// the server crashes during boot we can show the last few lines in the
+// failure dialog (and write them all to a crash log on disk). Capped to
+// avoid unbounded memory growth during a long-running session.
+const SERVER_LOG_MAX_LINES = 200;
+const serverLogLines = [];
+
+function captureServerLine(stream, raw) {
+  for (const line of String(raw).split(/\r?\n/)) {
+    const s = line.trimEnd();
+    if (!s) continue;
+    serverLogLines.push(`[${stream}] ${s}`);
+    while (serverLogLines.length > SERVER_LOG_MAX_LINES) serverLogLines.shift();
+  }
+}
+
+// Resolved when the server child exits. Used to short-circuit waitForServer:
+// if the child dies (e.g. SWC binary missing), there's no point waiting the
+// full 30 s polling for a port that will never bind.
+let serverExitInfo = null;
+let resolveServerExit = null;
+const serverExitedPromise = new Promise((r) => { resolveServerExit = r; });
 
 function isServerUp() {
   return new Promise((resolve) => {
@@ -228,12 +253,98 @@ function startServer() {
     });
   }
 
-  serverProcess.stdout?.on('data', (d) => console.log(`[server] ${d}`));
-  serverProcess.stderr?.on('data', (d) => console.error(`[server] ${d}`));
-  serverProcess.on('exit', (code) => {
-    console.log(`Server exited with code ${code}`);
-    serverProcess = null;
+  serverProcess.stdout?.on('data', (d) => {
+    captureServerLine('out', d);
+    console.log(`[server] ${d}`);
   });
+  serverProcess.stderr?.on('data', (d) => {
+    captureServerLine('err', d);
+    console.error(`[server] ${d}`);
+  });
+  serverProcess.on('exit', (code, signal) => {
+    console.log(`Server exited with code ${code}${signal ? ` (signal ${signal})` : ''}`);
+    serverExitInfo = { code, signal };
+    serverProcess = null;
+    resolveServerExit?.(serverExitInfo);
+  });
+}
+
+// Where boot-crash logs land. Stored under the same data dir as
+// sessions.db so users finding their data folder also find their logs.
+const LOG_DIR = path.join(os.homedir(), '.ssh-session-manager', 'logs');
+
+function writeBootCrashLog(reason) {
+  try {
+    fs.mkdirSync(LOG_DIR, { recursive: true });
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const file = path.join(LOG_DIR, `boot-crash-${stamp}.log`);
+    const body = [
+      `SSH Manager boot failure`,
+      `Time:           ${new Date().toISOString()}`,
+      `App version:    ${app.getVersion()}`,
+      `Electron:       ${process.versions.electron}`,
+      `Node:           ${process.versions.node}`,
+      `Platform:       ${process.platform} ${process.arch}`,
+      `OS version:     ${process.getSystemVersion?.() || '(unknown)'}`,
+      `Reason:         ${reason}`,
+      `Server exit:    code=${serverExitInfo?.code ?? '(still running / timed out)'} signal=${serverExitInfo?.signal ?? '(none)'}`,
+      ``,
+      `--- captured server output (last ${serverLogLines.length} line${serverLogLines.length === 1 ? '' : 's'}) ---`,
+      serverLogLines.length ? serverLogLines.join('\n') : '(no output captured)',
+    ].join('\n');
+    fs.writeFileSync(file, body);
+    return { file, body };
+  } catch (e) {
+    console.error('[main] failed to write boot crash log:', e?.message || e);
+    return { file: null, body: null };
+  }
+}
+
+/**
+ * Show a native dialog explaining that the bundled Next server didn't
+ * start. Without this, a failed-boot just leaves Electron alive with no
+ * window — symptomatically identical to "data is gone", which is what
+ * scared us into the recovery thread in the first place.
+ *
+ * Returns the user's button choice; caller is expected to quit either way.
+ */
+async function showBootFailureDialog(reason) {
+  const { file: logFile, body: logBody } = writeBootCrashLog(reason);
+  const tail = serverLogLines.slice(-25).join('\n') || '(no output captured)';
+
+  const detail = [
+    `Your sessions and profiles are still safe on disk at:`,
+    `  ~/.ssh-session-manager/sessions.db`,
+    `Reinstalling or downgrading SSH Manager will not touch that file.`,
+    ``,
+    `Reason: ${reason}`,
+    serverExitInfo
+      ? `Server exit: code=${serverExitInfo.code} signal=${serverExitInfo.signal ?? 'none'}`
+      : `Server status: did not become ready within the boot window.`,
+    ``,
+    `--- recent server output ---`,
+    tail,
+    ``,
+    logFile ? `Full crash log: ${logFile}` : `(could not write crash log to disk)`,
+  ].join('\n');
+
+  const buttons = ['Copy details', 'Open log folder', 'Quit'];
+  const result = await dialog.showMessageBox({
+    type: 'error',
+    title: 'SSH Manager — startup failed',
+    message: 'SSH Manager could not start its bundled server.',
+    detail,
+    buttons,
+    defaultId: 2,
+    cancelId: 2,
+    noLink: true,
+  });
+
+  if (result.response === 0) {
+    clipboard.writeText(logBody || detail);
+  } else if (result.response === 1 && logFile) {
+    try { shell.showItemInFolder(logFile); } catch { /* ignore */ }
+  }
 }
 
 function killServer() {
@@ -374,9 +485,26 @@ app.whenReady().then(async () => {
     if (!(await isServerUp())) startServer();
   }
 
-  const ready = await waitForServer();
-  if (!ready) {
-    console.error('Server failed to become ready');
+  // Race the standard boot wait against the server process exiting. The
+  // bundled Next server can die early during boot — most famously when the
+  // SWC native binary is missing (see v0.9.34) — and there's no value in
+  // waiting the full 30 s polling for a port that will never bind.
+  //
+  // We only show the failure dialog in packaged mode. In dev, `npm run dev`
+  // is expected to be managed by the developer; a flapping server there is
+  // a normal part of debugging and a modal would just get in the way.
+  const ready = await Promise.race([
+    waitForServer().then((ok) => ({ kind: 'ready', ok })),
+    serverExitedPromise.then(() => ({ kind: 'exited' })),
+  ]);
+  if (ready.kind === 'exited' || !ready.ok) {
+    const reason = ready.kind === 'exited'
+      ? `Bundled Next server exited before becoming ready.`
+      : `Bundled Next server did not respond within ${30} seconds.`;
+    console.error(`[main] ${reason}`);
+    if (app.isPackaged) {
+      await showBootFailureDialog(reason);
+    }
     app.quit();
     return;
   }
@@ -389,6 +517,10 @@ app.whenReady().then(async () => {
     const verified = await waitForOwnership();
     if (!verified) {
       console.error('[main] server is up but does not recognise our internal token');
+      await showBootFailureDialog(
+        `Server is reachable on port 3005 but does not recognise this launch's internal token. ` +
+        `This usually means another process bound the port between checks.`,
+      );
       app.quit();
       return;
     }
