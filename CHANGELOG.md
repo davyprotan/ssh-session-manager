@@ -2,6 +2,21 @@
 
 All notable changes to **SSH Manager**.
 
+## [0.9.30] — 2026-05-19
+
+### Fix: include `package.json` inside `app.asar`
+Follow-up to 0.9.29. With asar enabled, the macOS build progressed past
+the code-sign step (the EMFILE crash is fixed) but then failed the asar
+integrity check with:
+
+> Application "package.json" in ".../app.asar" is corrupted: "package.json" was not found in this archive
+
+The existing `build.files` glob (`electron/**/*`) didn't include
+`package.json`. Under `asar: false` Electron resolved the file from the
+unpacked tree; under `asar: true` it must live inside the archive.
+
+Fix: add `"package.json"` to `build.files`. One-line.
+
 ## [0.9.29] — 2026-05-19
 
 ### Fix: macOS Release build crash (EMFILE during code-sign)
