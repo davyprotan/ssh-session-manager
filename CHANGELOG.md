@@ -2,6 +2,34 @@
 
 All notable changes to **SSH Manager**.
 
+## [0.9.32] — 2026-05-19
+
+### Fix: macOS Release — EMFILE during code-sign (again, properly this time)
+v0.9.29 raised the runner's `ulimit -n` to 65536 hoping to clear the
+EMFILE crash. v0.9.31's build proved that wasn't enough — macOS silently
+clamps per-process file-descriptors at ~24K, and the shipped tree was
+big enough to blow even that. The next failure (after the asar package
+fix landed) was on
+`Contents/Resources/app/node_modules/@typescript-eslint/scope-manager/…`
+— a dev-only dependency that has no business being in the user's
+download.
+
+Real fix: don't ship dev dependencies to users.
+
+- New `scripts/prepare-runtime.mjs` runs as `postbuild` and stages a
+  prod-only copy of `node_modules` under `.build-runtime/node_modules/`
+  by `cp -r`'ing the existing tree and then `npm prune --omit=dev
+  --ignore-scripts` against it. `--ignore-scripts` keeps the
+  already-built native modules (keytar, node-pty, better-sqlite3) intact.
+- `extraResources` now reads from `.build-runtime/node_modules/`
+  instead of the root `node_modules/`. End layout in
+  `Contents/Resources/app/node_modules/` is the same shape — just half
+  the files.
+- Both `.build-runtime/` and `next-runtime-package.json` are gitignored.
+
+Side effect: the macOS dmg should drop in size by roughly a third (the
+delta between full and prod-only dependency trees in this repo).
+
 ## [0.9.31] — 2026-05-19
 
 ### Fix: macOS Release build — package.json not landing in app.asar
