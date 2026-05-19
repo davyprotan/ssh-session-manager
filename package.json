@@ -1,6 +1,6 @@
 {
   "name": "ssh-session-manager",
-  "version": "0.9.28",
+  "version": "0.9.29",
   "private": true,
   "main": "electron/main.js",
   "description": "Local SSH session and credential manager — Next.js + Electron, dark cyan UI",
@@ -69,7 +69,11 @@
       "buildResources": "electron/build",
       "output": "dist"
     },
-    "asar": false,
+    "asar": true,
+    "asarUnpack": [
+      "**/node_modules/keytar/**",
+      "**/node_modules/node-pty/**"
+    ],
     "extraResources": [
       {
         "from": ".next",

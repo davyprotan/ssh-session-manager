@@ -47,7 +47,12 @@ jobs:
         if: matrix.target == 'mac'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npx electron-builder --mac --x64 --arm64 --publish always
+        # macOS GitHub runners default to ulimit -n 256, which the code-sign
+        # walk blows past while opening every file under Resources/app/. Raise
+        # it inline (must run in the same shell as electron-builder).
+        run: |
+          ulimit -n 65536
+          npx electron-builder --mac --x64 --arm64 --publish always
 
       - name: Build Electron app (Windows)
         if: matrix.target == 'win'
