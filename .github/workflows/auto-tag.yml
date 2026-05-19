@@ -1,0 +1,74 @@
+name: Auto-tag on version bump
+
+# Watches main for package.json version changes. If the version has been
+# bumped to something that doesn't yet have a vX.Y.Z tag, this workflow
+# creates the tag and triggers release.yml.
+#
+# Why explicit dispatch instead of relying on the tag-push trigger?
+# Pushes made with the default GITHUB_TOKEN don't fire other workflows
+# (GitHub's recursion guard), so we have to wake release.yml ourselves.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'package.json'
+  workflow_dispatch:   # allow manual re-run if something went wrong
+
+permissions:
+  contents: write   # push the tag
+  actions: write    # dispatch release.yml
+
+concurrency:
+  group: auto-tag
+  cancel-in-progress: false
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # need full history so we can see existing tags
+
+      - name: Read package.json version
+        id: ver
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Detected version: v$VERSION"
+
+      - name: Check if tag already exists
+        id: check
+        run: |
+          if git rev-parse "refs/tags/${{ steps.ver.outputs.tag }}" >/dev/null 2>&1; then
+            echo "Tag ${{ steps.ver.outputs.tag }} already exists — nothing to do."
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Tag ${{ steps.ver.outputs.tag }} does not exist — will create."
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Configure git identity
+        if: steps.check.outputs.exists == 'false'
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Create and push tag
+        if: steps.check.outputs.exists == 'false'
+        run: |
+          git tag -a "${{ steps.ver.outputs.tag }}" -m "Release ${{ steps.ver.outputs.tag }}"
+          git push origin "${{ steps.ver.outputs.tag }}"
+
+      - name: Trigger release workflow
+        if: steps.check.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh workflow run release.yml \
+            --repo "$GITHUB_REPOSITORY" \
+            --ref  "${{ steps.ver.outputs.tag }}"
+          echo "Dispatched release.yml against ${{ steps.ver.outputs.tag }}"

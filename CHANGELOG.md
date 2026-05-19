@@ -2,6 +2,35 @@
 
 All notable changes to **SSH Manager**.
 
+## [0.9.28] — 2026-05-19
+
+### Manual "Check for updates" button + auto-tagged releases
+Two small but related changes around the update flow.
+
+**Settings → App updates**
+A new section in the Settings dialog shows the current version, when the
+app last checked GitHub Releases, and a **Check now** button that fires
+the check on demand (bypassing the banner's 24h throttle). The result
+surfaces as a toast:
+
+- Newer version available → success toast with a **Download** action
+  that opens the release page.
+- Up to date → "You're on the latest version" success.
+- GitHub unreachable / repo not public / rate-limited / no releases
+  → neutral toast with a human-readable explanation (the `reason`
+  field returned by `/api/update-check`).
+
+Previously the banner stayed silently hidden in all the
+`available:false` cases, which made it impossible to tell whether the
+app was healthy or the check had quietly failed.
+
+**Auto-tag workflow** (`.github/workflows/auto-tag.yml`)
+On every push to `main` that touches `package.json`, the new workflow
+reads the version, and if no `vX.Y.Z` tag exists yet, creates one and
+dispatches `release.yml` against it. Versions 0.9.17–0.9.25 and 0.9.27
+were documented in CHANGELOG but never tagged, so no Electron release
+ever shipped for them — this stops that from recurring.
+
 ## [0.9.27] — 2026-05-14
 
 ### Fix: terminal prompt clipped at window bottom in split (full) layout

@@ -9,11 +9,26 @@ import {
   FileText, Download, Upload, Settings as SettingsIcon, FolderInput,
   ShieldCheck, Lock, Database, RotateCcw, Trash2, AlertCircle, Eye, EyeOff,
   Activity, FileCode, RefreshCw, Eraser, Terminal as TerminalIcon, KeyRound,
+  Sparkles,
 } from "lucide-react";
+import packageJson from "../../package.json";
 
 const AUTO_FILL_KEY = "ssh-manager-autofill-enabled";
 const COPY_ON_SELECT_KEY = "ssh-manager-copy-on-select";
+const LAST_UPDATE_CHECK_KEY = "ssh-manager-last-update-check";
+const UPDATE_CACHE_KEY = "ssh-manager-update-cache";
+const APP_VERSION = packageJson.version;
 import { toast } from "sonner";
+
+interface UpdateCheckResult {
+  available: boolean;
+  current: string;
+  latest?: string;
+  release_url?: string;
+  release_name?: string;
+  releases_page?: string;
+  reason?: string;
+}
 
 interface BackupInfo {
   filename: string;
@@ -80,6 +95,9 @@ export default function SettingsDialog({ open, onClose, onChanged, onOpenSshImpo
   const [autoFillEnabled, setAutoFillEnabled] = useState(true);
   const [copyOnSelectEnabled, setCopyOnSelectEnabled] = useState(true);
 
+  const [checkingUpdate, setCheckingUpdate] = useState(false);
+  const [lastUpdateCheck, setLastUpdateCheck] = useState<number | null>(null);
+
   useEffect(() => {
     if (!open) return;
     try {
@@ -87,6 +105,8 @@ export default function SettingsDialog({ open, onClose, onChanged, onOpenSshImpo
       setAutoFillEnabled(v === null ? true : v === "true");
       const c = localStorage.getItem(COPY_ON_SELECT_KEY);
       setCopyOnSelectEnabled(c === null ? true : c === "true");
+      const u = localStorage.getItem(LAST_UPDATE_CHECK_KEY);
+      setLastUpdateCheck(u ? parseInt(u) : null);
     } catch { /* ignore */ }
   }, [open]);
 
@@ -141,6 +161,48 @@ export default function SettingsDialog({ open, onClose, onChanged, onOpenSshImpo
       }
     } finally {
       setSshConfigBusy(false);
+    }
+  }
+
+  async function checkForUpdates() {
+    setCheckingUpdate(true);
+    try {
+      // Manual check bypasses the banner's 24h throttle — but we still refresh
+      // the cache so the banner reflects whatever we just learned.
+      const res = await fetch("/api/update-check");
+      const data: UpdateCheckResult = await res.json();
+      try {
+        localStorage.setItem(LAST_UPDATE_CHECK_KEY, String(Date.now()));
+        localStorage.setItem(UPDATE_CACHE_KEY, JSON.stringify(data));
+      } catch { /* ignore */ }
+      setLastUpdateCheck(Date.now());
+
+      if (data.available && data.latest) {
+        toast.success(`${data.release_name || data.latest} is available`, {
+          description: `You're on v${data.current}`,
+          action: {
+            label: "Download",
+            onClick: () => window.open(
+              data.release_url || data.releases_page || "https://github.com/davyprotan/ssh-session-manager/releases",
+              "_blank"
+            ),
+          },
+        });
+      } else if (data.reason) {
+        toast.message(updateReasonText(data.reason), {
+          description: `You're on v${data.current}`,
+        });
+      } else {
+        toast.success("You're on the latest version", {
+          description: `v${data.current}`,
+        });
+      }
+    } catch (e) {
+      toast.error("Couldn't check for updates", {
+        description: e instanceof Error ? e.message : String(e),
+      });
+    } finally {
+      setCheckingUpdate(false);
     }
   }
 
@@ -553,6 +615,39 @@ export default function SettingsDialog({ open, onClose, onChanged, onOpenSshImpo
             </div>
           </Section>
 
+          {/* App updates — manual check against GitHub Releases */}
+          <Section title="App updates">
+            <div className="rounded-xl border p-3" style={{ borderColor: "var(--border)" }}>
+              <div className="flex items-start gap-3">
+                <div className="flex h-9 w-9 items-center justify-center rounded-lg shrink-0" style={{ background: "color-mix(in srgb, var(--accent) 10%, transparent)", color: "var(--accent)" }}>
+                  <Sparkles className="h-4 w-4" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-[14px] font-semibold" style={{ color: "var(--foreground)" }}>Check for updates</p>
+                  <p className="text-[12px] mt-0.5" style={{ color: "var(--muted-fg)" }}>
+                    You&apos;re on <span className="font-mono">v{APP_VERSION}</span>. SSH Manager checks GitHub Releases automatically once a day — use this to check right now.
+                  </p>
+                  <p className="text-[11px] mt-1.5 font-mono" style={{ color: "var(--subtle-fg)" }}>
+                    {lastUpdateCheck
+                      ? `last checked: ${timeAgo(new Date(lastUpdateCheck).toISOString())}`
+                      : "never checked from this device"}
+                  </p>
+                </div>
+              </div>
+              <div className="mt-3">
+                <Button
+                  size="sm"
+                  onClick={checkForUpdates}
+                  disabled={checkingUpdate}
+                  style={{ background: "var(--accent)", color: "var(--accent-foreground)", border: "none" }}
+                >
+                  <RefreshCw className={`h-3 w-3 mr-1 ${checkingUpdate ? "animate-spin" : ""}`} />
+                  {checkingUpdate ? "Checking…" : "Check now"}
+                </Button>
+              </div>
+            </div>
+          </Section>
+
           {/* Audit log — sensitive operations recorded by the app */}
           <Section title="Recent activity">
             <button
@@ -717,6 +812,17 @@ function shortTime(iso: string): string {
   if (isNaN(d.getTime())) return iso;
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function updateReasonText(reason: string): string {
+  if (reason === "release-feed-not-public") return "Release feed isn't public — no published versions visible";
+  if (reason === "no-tag") return "No releases published yet on GitHub";
+  if (reason.startsWith("github-api-error-403")) return "GitHub rate limit hit — try again in a minute";
+  if (reason.startsWith("github-api-error-")) {
+    const code = reason.replace("github-api-error-", "");
+    return `GitHub responded with HTTP ${code}`;
+  }
+  return `Couldn't reach GitHub (${reason})`;
 }
 
 function eventColor(event: string): string {
