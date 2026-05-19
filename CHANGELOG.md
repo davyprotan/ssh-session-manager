@@ -2,6 +2,44 @@
 
 All notable changes to **SSH Manager**.
 
+## [0.9.36] — 2026-05-19
+
+### Fix: bundled native modules built against the wrong Node ABI
+Companion to v0.9.34. After v0.9.34 fixed the SWC arch problem, the
+arm64 `.dmg` still failed at boot with:
+
+```
+better_sqlite3.node was compiled against a different Node.js version
+using NODE_MODULE_VERSION 115. This version of Node.js requires
+NODE_MODULE_VERSION 145.
+```
+
+Root cause is the same family as v0.9.34. `prepare-runtime.mjs` stages
+`.build-runtime/node_modules/` for `extraResources`, but
+electron-builder's `npmRebuild` step only operates on the asar tree —
+extraResources content is copied verbatim. The runner's `npm ci` builds
+`better-sqlite3`, `keytar`, and `node-pty` against Node 20's ABI (115);
+the Next server child at runtime uses Electron 41's bundled Node (ABI
+145); `dlopen` fails; server crashes; no window. The earlier asar copy
+of `keytar` works because it goes through `npmRebuild` — only the
+runtime-tree copies are wrong.
+
+This regression has been latent since v0.9.32 introduced
+`prepare-runtime.mjs`. Earlier versions worked because the full
+`node_modules` was bundled directly and `npmRebuild` covered it.
+
+Fix:
+
+1. Add `@electron/rebuild` as a devDependency.
+2. Extend `electron/build/afterPack.js` to rebuild the runtime tree's
+   `better-sqlite3`, `keytar`, and `node-pty` against Electron's ABI
+   for the current target arch. The afterPack hook is the right place
+   because `context.arch` tells us which `.app` we're patching — so each
+   `.dmg` ships natively rebuilt modules for its own architecture.
+3. Surface a clear `[afterPack]` log if any of the expected native
+   modules is missing from the staged tree, so packaging mistakes fail
+   loudly instead of crashing at user launch.
+
 ## [0.9.35] — 2026-05-19
 
 ### Fix: Surface boot failures instead of silently quitting
