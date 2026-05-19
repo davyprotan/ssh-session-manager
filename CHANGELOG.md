@@ -2,6 +2,44 @@
 
 All notable changes to **SSH Manager**.
 
+## [0.9.35] — 2026-05-19
+
+### Fix: Surface boot failures instead of silently quitting
+When the bundled Next server crashed during launch — the v0.9.33 Intel
+`.dmg`'s `Failed to load SWC binary for darwin/x64` was the recent
+example — `electron/main.js` polled the port for 30 s, logged "Server
+failed to become ready" to a console nobody saw, then called `app.quit()`.
+Users saw "app opens, no window… app eventually disappears" with no
+indication of WHY, and reasonably assumed their data was gone (it never
+was — `~/.ssh-session-manager/sessions.db` is untouched by reinstalls).
+
+This release adds three things to the packaged-mode boot path:
+
+1. A ring buffer (last 200 lines) of the Next server's stdout/stderr,
+   kept in main-process memory. Previously the output went only to a
+   console nobody sees in a packaged build.
+2. Early-exit detection: `waitForServer()` is now raced against the
+   `serverProcess.on('exit')` promise. If the child dies during boot we
+   stop polling immediately instead of waiting the full 30 s for a port
+   that will never bind.
+3. A native error dialog (`dialog.showMessageBox`) that fires before
+   `app.quit()` whenever boot fails — either due to early exit or the
+   timeout. The dialog explicitly reassures the user that their data is
+   safe on disk, shows the last 25 captured log lines inline, and offers
+   three buttons:
+   - **Copy details** — full diagnostic block to clipboard
+   - **Open log folder** — reveals the per-crash log file in Finder /
+     Explorer
+   - **Quit**
+
+Crash logs persist to `~/.ssh-session-manager/logs/boot-crash-<ts>.log`
+alongside the SQLite DB. The dev path (`npm run dev`) is unchanged — a
+flapping server during development is normal and would just yield a
+modal-spam loop.
+
+The `waitForOwnership` failure path now also surfaces a dialog explaining
+that another process is holding port 3005.
+
 ## [0.9.34] — 2026-05-19
 
 ### Fix: Intel macOS `.dmg` crashed on launch with "Failed to load SWC binary"
