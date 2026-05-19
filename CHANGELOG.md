@@ -2,6 +2,42 @@
 
 All notable changes to **SSH Manager**.
 
+## [0.9.29] — 2026-05-19
+
+### Fix: macOS Release build crash (EMFILE during code-sign)
+Every macOS Release build since the project's inception has failed with
+`EMFILE: too many open files` partway through the electron-builder
+code-sign step. As a result, no `.dmg` or `.zip` artifact has ever been
+published to GitHub Releases — the in-app update banner had nothing to
+find even when tags existed (v0.9.16, v0.9.26).
+
+Two compounding causes:
+
+1. `"asar": false` in `package.json` made electron-builder copy the
+   entire main-process `node_modules` tree into the app bundle
+   uncompressed, dramatically multiplying the file count.
+2. The macOS GitHub runner defaults to `ulimit -n 256`. The signer
+   opens every file under `Resources/` in parallel, blowing past
+   that limit when one of those files is e.g. an obscure rule under
+   `@typescript-eslint/eslint-plugin/dist/rules/…`.
+
+Fixes applied:
+
+- **`asar: true`** in `package.json`, with `asarUnpack` listing the
+  two native modules the main process actually requires (`keytar`,
+  `node-pty`). `better-sqlite3` lives inside the Next.js server which
+  is delivered via `extraResources` outside asar already, so no unpack
+  entry is needed for it.
+- **`ulimit -n 65536`** is now raised inline in the macOS step of
+  `.github/workflows/release.yml`, immediately before `electron-builder`
+  runs (must be in the same shell — the directive doesn't persist
+  across steps).
+
+Once this lands, the next auto-tagged release should publish the
+first ever working `.dmg`/`.zip` to the public Releases feed, and the
+"Check for updates" feature added in 0.9.28 will actually have versions
+to surface.
+
 ## [0.9.28] — 2026-05-19
 
 ### Manual "Check for updates" button + auto-tagged releases
