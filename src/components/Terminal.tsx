@@ -67,10 +67,16 @@ type ConnState =
   | { phase: "idle" }
   | { phase: "connecting" }
   | { phase: "connected"; handle: number; display: string }
+  | { phase: "reconnecting"; attempt: number; maxAttempts: number; secondsLeft: number }
   | { phase: "exited"; exitCode: number; signal: number | null }
   | { phase: "error"; error: string };
 
 const TEXT_DECODER = new TextDecoder("utf-8", { fatal: false });
+
+// Backoff schedule for auto-reconnect on network failure (OpenSSH exit 255).
+// Each value is the delay BEFORE that attempt, in seconds. Length = max
+// attempts. Kept conservative so we don't hammer flapping hosts.
+const RECONNECT_BACKOFF_SECONDS: readonly number[] = [2, 5, 10];
 
 export default function Terminal({ target, label, onExit, onClose }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -238,10 +244,47 @@ export default function Terminal({ target, label, onExit, onClose }: Props) {
       connectHandlers.length = 0;
     }
 
+    // Auto-reconnect state. Counter increments on every consecutive
+    // network-failure exit and resets the moment we land in "connected".
+    let reconnectAttempt = 0;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let reconnectTicker: ReturnType<typeof setInterval> | null = null;
+    function cancelPendingReconnect() {
+      if (reconnectTimer != null) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+      if (reconnectTicker != null) { clearInterval(reconnectTicker); reconnectTicker = null; }
+    }
+    function scheduleAutoReconnect() {
+      cancelPendingReconnect();
+      const delaySec = RECONNECT_BACKOFF_SECONDS[reconnectAttempt];
+      const maxAttempts = RECONNECT_BACKOFF_SECONDS.length;
+      const attemptNumber = reconnectAttempt + 1; // 1-indexed for display
+      let remaining = delaySec;
+      setState({ phase: "reconnecting", attempt: attemptNumber, maxAttempts, secondsLeft: remaining });
+      reconnectTicker = setInterval(() => {
+        remaining -= 1;
+        if (remaining <= 0) {
+          if (reconnectTicker != null) { clearInterval(reconnectTicker); reconnectTicker = null; }
+          return;
+        }
+        setState({ phase: "reconnecting", attempt: attemptNumber, maxAttempts, secondsLeft: remaining });
+      }, 1000);
+      reconnectTimer = setTimeout(() => {
+        reconnectTimer = null;
+        if (reconnectTicker != null) { clearInterval(reconnectTicker); reconnectTicker = null; }
+        if (aborted) return;
+        reconnectAttempt += 1;
+        void doConnect(true);
+      }, delaySec * 1000);
+    }
+
     async function doConnect(isReconnect: boolean): Promise<void> {
       if (aborted) return;
       // Re-narrow inside the async closure — TS loses the outer narrow across awaits.
       if (!bridge) return;
+
+      // Any pending auto-reconnect timer is now obsolete — either we're
+      // about to honour it ourselves, or the user manually re-fired.
+      cancelPendingReconnect();
 
       // Tear down any handlers from the previous (now-dead) pty.
       disposeConnectHandlers();
@@ -287,6 +330,9 @@ export default function Terminal({ target, label, onExit, onClose }: Props) {
       const handle = res.handle;
       handleRef.current = handle;
       ptyHandle = handle;
+      // A successful (re)connect clears the auto-reconnect attempt counter
+      // so the next unrelated network blip gets the full retry budget again.
+      reconnectAttempt = 0;
       setState({ phase: "connected", handle, display: res.display });
 
       // Defensive: if cols/rows drifted between spawn and now (very fast
@@ -304,10 +350,23 @@ export default function Terminal({ target, label, onExit, onClose }: Props) {
       });
 
       const offExit = bridge.onExit(handle, (info) => {
-        setState({ phase: "exited", exitCode: info.exitCode, signal: info.signal });
         try {
           term.write(`\r\n\x1b[2m[disconnected — exit ${info.exitCode}${info.signal ? `, signal ${info.signal}` : ""}]\x1b[0m\r\n`);
         } catch { /* ignore */ }
+        // OpenSSH exits 255 for "ssh itself failed" — almost always a
+        // dropped link (the keepalive defaults in buildSshArgs ensure this
+        // surfaces within ~90s of network loss). Anything else (0 = clean
+        // logout, 1/2/127 = remote command failed) is a user-meaningful
+        // exit and shouldn't loop. We also skip auto-reconnect on signal
+        // kills — those are typically intentional (Ctrl-C of `ssh`, app
+        // shutdown).
+        const isNetworkFailure = info.exitCode === 255 && !info.signal;
+        const budgetLeft = reconnectAttempt < RECONNECT_BACKOFF_SECONDS.length;
+        if (!aborted && isNetworkFailure && budgetLeft) {
+          scheduleAutoReconnect();
+        } else {
+          setState({ phase: "exited", exitCode: info.exitCode, signal: info.signal });
+        }
         onExit?.(info);
       });
 
@@ -342,6 +401,7 @@ export default function Terminal({ target, label, onExit, onClose }: Props) {
     return () => {
       aborted = true;
       reconnectRef.current = null;
+      cancelPendingReconnect();
       ro.disconnect();
       cancelAnimationFrame(raf);
       cleanupContainer?.removeEventListener("mouseup", onMouseUp);
@@ -382,7 +442,7 @@ export default function Terminal({ target, label, onExit, onClose }: Props) {
         <span className="text-[12.5px] font-semibold truncate" style={{ color: "var(--foreground)" }}>{label}</span>
         <StatusPill state={state} />
         <div className="flex-1" />
-        {(state.phase === "exited" || state.phase === "error") && (
+        {(state.phase === "exited" || state.phase === "error" || state.phase === "reconnecting") && (
           <button
             onClick={() => reconnectRef.current?.()}
             className="inline-flex items-center gap-1 h-6 rounded px-2 text-[11.5px] font-semibold transition-colors"
@@ -392,10 +452,10 @@ export default function Terminal({ target, label, onExit, onClose }: Props) {
             }}
             onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = "color-mix(in srgb, var(--accent) 20%, transparent)"; }}
             onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = "color-mix(in srgb, var(--accent) 12%, transparent)"; }}
-            title="Reconnect — re-spawn this session without losing scrollback"
+            title={state.phase === "reconnecting" ? "Reconnect now — skip the backoff timer" : "Reconnect — re-spawn this session without losing scrollback"}
           >
             <RotateCw className="h-3 w-3" />
-            Reconnect
+            {state.phase === "reconnecting" ? "Reconnect now" : "Reconnect"}
           </button>
         )}
         {onClose && (
@@ -446,6 +506,17 @@ function StatusPill({ state }: { state: ConnState }) {
       <span className="text-[10.5px] font-semibold uppercase tracking-wide rounded-full px-1.5 py-0.5" style={{
         background: "rgba(34,197,94,0.15)", color: "#4ade80",
       }}>connected</span>
+    );
+  }
+  if (state.phase === "reconnecting") {
+    return (
+      <span className="inline-flex items-center gap-1 text-[10.5px] font-semibold uppercase tracking-wide rounded-full px-1.5 py-0.5" style={{
+        background: "color-mix(in srgb, #f59e0b 18%, transparent)",
+        color: "#f59e0b",
+      }}>
+        <Loader2 className="h-2.5 w-2.5 animate-spin" />
+        reconnecting · {state.secondsLeft}s · {state.attempt}/{state.maxAttempts}
+      </span>
     );
   }
   if (state.phase === "exited") {

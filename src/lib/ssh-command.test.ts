@@ -81,11 +81,52 @@ describe('parseExtraArgs', () => {
 });
 
 describe('buildSshArgs', () => {
-  it('builds a minimal argv', () => {
+  it('builds a minimal argv (with default keepalive)', () => {
     const r = buildSshArgs({ host: '10.0.0.1', port: 22 });
     expect(r.ok).toBe(true);
     if (!r.ok) return;
-    expect(r.argv).toEqual(['10.0.0.1']);
+    // Default keepalive is injected so we can detect dropped network links
+    // instead of stranding the UI on "connected" indefinitely.
+    expect(r.argv).toEqual([
+      '-o', 'ServerAliveInterval=30',
+      '-o', 'ServerAliveCountMax=3',
+      '10.0.0.1',
+    ]);
+  });
+
+  it('lets an explicit serverAliveInterval override the default', () => {
+    const r = buildSshArgs({ host: '10.0.0.1', port: 22, serverAliveInterval: 15 });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.argv).toContain('ServerAliveInterval=15');
+    expect(r.argv).not.toContain('ServerAliveInterval=30');
+    // CountMax default still applies because the field doesn't cover it
+    expect(r.argv).toContain('ServerAliveCountMax=3');
+  });
+
+  it('lets extra_args override the keepalive defaults', () => {
+    const r = buildSshArgs({
+      host: '10.0.0.1', port: 22,
+      extraArgs: '-o ServerAliveInterval=120 -o ServerAliveCountMax=10',
+    });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.argv).toContain('ServerAliveInterval=120');
+    expect(r.argv).toContain('ServerAliveCountMax=10');
+    expect(r.argv).not.toContain('ServerAliveInterval=30');
+    expect(r.argv).not.toContain('ServerAliveCountMax=3');
+  });
+
+  it('only fills the keepalive knob extra_args left unset', () => {
+    const r = buildSshArgs({
+      host: '10.0.0.1', port: 22,
+      extraArgs: '-o ServerAliveCountMax=5',
+    });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.argv).toContain('ServerAliveInterval=30');
+    expect(r.argv).toContain('ServerAliveCountMax=5');
+    expect(r.argv).not.toContain('ServerAliveCountMax=3');
   });
 
   it('refuses host with shell metacharacters', () => {

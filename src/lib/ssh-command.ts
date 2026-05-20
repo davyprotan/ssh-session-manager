@@ -152,12 +152,39 @@ export function buildSshArgs(input: SshArgsInput): SshArgsResult | SshArgsError 
     return { ok: false, error: parsedExtra.error || "invalid extra_args" };
   }
 
+  // Defaults for connection-loss detection. Without these, OpenSSH won't
+  // probe the link and the local `ssh` process can sit on a dead TCP socket
+  // for hours, leaving the UI stuck on "connected" after the network drops.
+  // With 30s × 3 missed probes, a broken link surfaces as a PTY exit within
+  // ~90s and the renderer transitions to "exited" / auto-reconnect kicks in.
+  //
+  // Precedence:
+  //   1. Explicit `serverAliveInterval` field on the profile wins outright.
+  //   2. Otherwise, defer to whatever extra_args already specifies.
+  //   3. Otherwise, inject our defaults.
+  // ServerAliveCountMax has no dedicated field, so only steps 2/3 apply.
+  const extraHasInterval = parsedExtra.tokens?.some(
+    (t, i) => i > 0 && parsedExtra.tokens![i - 1] === "-o" && /^serveraliveinterval(=|$)/i.test(t)
+  ) ?? false;
+  const extraHasCountMax = parsedExtra.tokens?.some(
+    (t, i) => i > 0 && parsedExtra.tokens![i - 1] === "-o" && /^serveralivecountmax(=|$)/i.test(t)
+  ) ?? false;
+  const DEFAULT_SERVER_ALIVE_INTERVAL = 30;
+  const DEFAULT_SERVER_ALIVE_COUNT_MAX = 3;
+
   const argv: string[] = [];
   if (keyPath) { argv.push("-i", keyPath); }
   if (port !== 22) { argv.push("-p", String(port)); }
   if (input.agentForwarding) argv.push("-A");
   if (input.compression) argv.push("-C");
-  if (sai > 0) { argv.push("-o", `ServerAliveInterval=${sai}`); }
+  if (sai > 0) {
+    argv.push("-o", `ServerAliveInterval=${sai}`);
+  } else if (!extraHasInterval) {
+    argv.push("-o", `ServerAliveInterval=${DEFAULT_SERVER_ALIVE_INTERVAL}`);
+  }
+  if (!extraHasCountMax) {
+    argv.push("-o", `ServerAliveCountMax=${DEFAULT_SERVER_ALIVE_COUNT_MAX}`);
+  }
   if (jumpHost) { argv.push("-J", jumpHost); }
   // Legacy compatibility: add the deprecated algorithms that old network
   // gear still negotiates. Use `+algo` so they're appended to the modern
