@@ -164,4 +164,33 @@ describe('buildSshArgs', () => {
     expect(r.argv.join(' ')).toContain('KexAlgorithms=+');
     expect(r.argv.join(' ')).toContain('HostKeyAlgorithms=+ssh-rsa');
   });
+
+  it('disables public-key auth for password-auth profiles', () => {
+    const r = buildSshArgs({ host: '10.0.0.1', port: 22, authType: 'password' });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.argv).toContain('PubkeyAuthentication=no');
+    expect(r.argv).toContain('IdentitiesOnly=yes');
+  });
+
+  it('leaves public-key auth alone for key-auth profiles', () => {
+    const r = buildSshArgs({ host: '10.0.0.1', port: 22, authType: 'key' });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.argv).not.toContain('PubkeyAuthentication=no');
+    expect(r.argv).not.toContain('IdentitiesOnly=yes');
+  });
+
+  it('does not override an explicit PubkeyAuthentication in extra_args', () => {
+    // User-supplied override should win — we only inject our default when
+    // the user hasn't said anything.
+    const r = buildSshArgs({
+      host: '10.0.0.1', port: 22, authType: 'password',
+      extraArgs: '-o PubkeyAuthentication=yes',
+    });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.argv).not.toContain('PubkeyAuthentication=no');
+    expect(r.argv).toContain('PubkeyAuthentication=yes');
+  });
 });
