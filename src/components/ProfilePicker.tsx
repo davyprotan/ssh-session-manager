@@ -1,6 +1,6 @@
 "use client";
 
-import { Key, Lock, Plus, Check, Star, ShieldCheck, Sparkles } from "lucide-react";
+import { Key, Lock, Plus, Check, Star, ShieldCheck, Sparkles, History } from "lucide-react";
 import { COLOR_HEX, type ProfileColor } from "@/lib/profile-colors";
 import type { Profile } from "@/lib/types";
 
@@ -96,6 +96,16 @@ export default function ProfilePicker({ profiles, selectedId, onSelect, onNewPro
                 <p className="text-[14px] font-semibold truncate" style={{ color: "var(--foreground)" }}>{p.name}</p>
                 {p.is_default ? (
                   <Star className="h-3.5 w-3.5 shrink-0 fill-current" style={{ color }} />
+                ) : null}
+                {p.compat_legacy ? (
+                  <span
+                    className="inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide shrink-0"
+                    style={{ background: "color-mix(in srgb, #fbbf24 14%, transparent)", color: "#fbbf24" }}
+                    title="Legacy compatibility enabled — SSH will negotiate older algorithms (SHA-1 KEX, ssh-rsa, CBC) for old gear"
+                  >
+                    <History className="h-2.5 w-2.5" />
+                    Legacy
+                  </span>
                 ) : null}
                 {suggestedId === p.id && (
                   <span

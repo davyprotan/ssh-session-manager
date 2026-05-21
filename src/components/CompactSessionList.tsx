@@ -388,6 +388,14 @@ function ProfileRowCompact({ profile: p, onEdit, onDelete }: { profile: Profile;
         <div className="flex items-center gap-1.5">
           <Icon className="h-3 w-3 shrink-0" style={{ color: p.auth_type === "password" ? "#fbbf24" : color }} />
           <p className="text-[13px] font-semibold truncate flex-1" style={{ color: "var(--foreground)" }}>{p.name}</p>
+          {p.compat_legacy ? (
+            <span
+              title="Legacy compatibility enabled — SSH will negotiate older algorithms for old gear"
+              className="inline-flex shrink-0"
+            >
+              <HistoryIcon className="h-3 w-3" style={{ color: "#fbbf24" }} aria-label="Legacy compatibility enabled" />
+            </span>
+          ) : null}
           {p.is_default ? <Star className="h-3 w-3 shrink-0 fill-current" style={{ color }} /> : null}
         </div>
         <p className="text-[11.5px] font-mono truncate mt-0.5" style={{ color: "var(--muted-fg)" }}>{p.username}</p>
