@@ -324,7 +324,14 @@ function register(config) {
     }
 
     wireDataAndExit(handle, session);
-    return { ok: true, handle, display: plan.display, sessionLabel: plan.sessionLabel };
+    return {
+      ok: true,
+      handle,
+      display: plan.display,
+      sessionLabel: plan.sessionLabel,
+      profileId: plan.profileId ?? null,
+      sessionId: plan.sessionId ?? null,
+    };
   }
 
   function wireDataAndExit(handle, session) {
