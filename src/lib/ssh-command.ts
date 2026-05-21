@@ -110,6 +110,13 @@ export interface SshArgsInput {
    *  algorithms that old network gear (Arista, ADVA, Cisco IOS, etc.) still
    *  requires. OpenSSH 9+ disables these by default. */
   compatLegacy?: boolean;
+  /** Profile auth type. When 'password', we disable client-side public-key
+   *  authentication so `ssh` doesn't offer ~/.ssh/id_* to the server. That
+   *  is both faster (no wasted offer rounds), safer (no key fingerprint
+   *  leaked to random gear), and works around RomSShell / other embedded
+   *  SSH stacks that send a malformed SSH_MSG_USERAUTH_PK_OK reply which
+   *  OpenSSH 10 rejects as "invalid format". */
+  authType?: 'key' | 'key_with_passphrase' | 'password' | '';
 }
 
 export interface SshArgsResult {
@@ -205,6 +212,25 @@ export function buildSshArgs(input: SshArgsInput): SshArgsResult | SshArgsError 
     argv.push("-o", "PubkeyAcceptedAlgorithms=+ssh-rsa");
     argv.push("-o", "Ciphers=+aes128-cbc,aes192-cbc,aes256-cbc,3des-cbc");
     argv.push("-o", "MACs=+hmac-sha1,hmac-sha2-256,hmac-md5");
+  }
+  // For password-auth profiles, suppress client-side public-key auth so
+  // `ssh` doesn't offer keys from ~/.ssh that the user never asked us to
+  // send. Without this, OpenSSH still tries every default identity before
+  // falling back to password — which trips RomSShell-derived embedded SSH
+  // stacks (ADVA / Coriant / Adtran / older Arista) that send a malformed
+  // SSH_MSG_USERAUTH_PK_OK reply, making OpenSSH 10 abort with
+  // `ssh_dispatch_run_fatal: invalid format` before we ever get the chance
+  // to type the password. If the user explicitly overrides either option
+  // in extra_args, defer to that.
+  if (input.authType === "password") {
+    const extraHasPubkeyAuth = parsedExtra.tokens?.some(
+      (t, i) => i > 0 && parsedExtra.tokens![i - 1] === "-o" && /^pubkeyauthentication(=|$)/i.test(t)
+    ) ?? false;
+    const extraHasIdentitiesOnly = parsedExtra.tokens?.some(
+      (t, i) => i > 0 && parsedExtra.tokens![i - 1] === "-o" && /^identitiesonly(=|$)/i.test(t)
+    ) ?? false;
+    if (!extraHasPubkeyAuth) argv.push("-o", "PubkeyAuthentication=no");
+    if (!extraHasIdentitiesOnly) argv.push("-o", "IdentitiesOnly=yes");
   }
   if (parsedExtra.tokens && parsedExtra.tokens.length > 0) {
     argv.push(...parsedExtra.tokens);

@@ -46,6 +46,7 @@ export async function POST(req: NextRequest) {
   let serverAliveInterval = 0;
   let extraArgs = '';
   let compatLegacy = 0;
+  let authType: 'key' | 'key_with_passphrase' | 'password' | '' = '';
 
   if (typeof body.session_id === 'number') {
     const session = db.prepare(`SELECT * FROM sessions WHERE id = ?`).get(body.session_id) as SessionRow | undefined;
@@ -67,6 +68,7 @@ export async function POST(req: NextRequest) {
         serverAliveInterval = profile.server_alive_interval || 0;
         extraArgs = profile.extra_args || '';
         compatLegacy = profile.compat_legacy || 0;
+        authType = (profile.auth_type as typeof authType) || '';
       }
     }
 
@@ -85,6 +87,7 @@ export async function POST(req: NextRequest) {
     serverAliveInterval = profile.server_alive_interval || 0;
     extraArgs = profile.extra_args || '';
     compatLegacy = profile.compat_legacy || 0;
+    authType = (profile.auth_type as typeof authType) || '';
   } else {
     return NextResponse.json({ error: 'Provide session_id, or host + profile_id' }, { status: 400 });
   }
@@ -101,6 +104,7 @@ export async function POST(req: NextRequest) {
     serverAliveInterval,
     extraArgs,
     compatLegacy: !!compatLegacy,
+    authType,
   });
 
   if (!result.ok) {

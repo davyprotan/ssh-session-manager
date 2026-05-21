@@ -18,7 +18,7 @@ import { Label } from "@/components/ui/label";
 import {
   Zap, Check, BookmarkPlus, KeyRound, Sparkles,
   Loader2, AlertCircle, Wifi, ChevronLeft,
-  Key, Lock, ShieldCheck, Star,
+  Key, Lock, ShieldCheck, Star, History,
 } from "lucide-react";
 import ProfileDialog from "./ProfileDialog";
 import SetupPasswordlessDialog from "./SetupPasswordlessDialog";
@@ -499,6 +499,16 @@ function ConnectButton({ profile, suggested, connecting, onClick, onSetupPasswor
           <div className="flex items-center gap-1.5">
             <p className="text-[14px] font-semibold truncate" style={{ color: "var(--foreground)" }}>{profile.name}</p>
             {profile.is_default ? <Star className="h-3.5 w-3.5 shrink-0 fill-current" style={{ color }} /> : null}
+            {profile.compat_legacy ? (
+              <span
+                className="inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide shrink-0"
+                style={{ background: "color-mix(in srgb, #fbbf24 14%, transparent)", color: "#fbbf24" }}
+                title="Legacy compatibility enabled — SSH will negotiate older algorithms for old gear"
+              >
+                <History className="h-2.5 w-2.5" />
+                Legacy
+              </span>
+            ) : null}
             {suggested && (
               <span className="inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide shrink-0" style={{ background: `${color}26`, color }}>
                 <Sparkles className="h-2.5 w-2.5" />

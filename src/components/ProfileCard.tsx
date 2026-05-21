@@ -2,7 +2,7 @@
 
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { Key, Lock, MoreVertical, Pencil, Trash2, Server, Hash, Star, ShieldCheck } from "lucide-react";
+import { Key, Lock, MoreVertical, Pencil, Trash2, Server, Hash, Star, ShieldCheck, History } from "lucide-react";
 import { COLOR_HEX, type ProfileColor } from "@/lib/profile-colors";
 import type { Profile } from "@/lib/types";
 
@@ -52,6 +52,16 @@ export default function ProfileCard({ profile, sessionCount, onEdit, onDelete }:
           >
             {authLabel}
           </span>
+          {profile.compat_legacy ? (
+            <span
+              className="inline-flex items-center gap-1 text-xs font-medium rounded-md px-1.5 py-0.5"
+              style={{ background: "rgba(251,191,36,0.1)", color: "#fbbf24" }}
+              title="Legacy compatibility enabled — SSH will negotiate older algorithms (SHA-1 KEX, ssh-rsa, CBC) for old gear"
+            >
+              <History className="h-3 w-3" />
+              Legacy
+            </span>
+          ) : null}
           {sessionCount > 0 && (
             <span className="flex items-center gap-1 text-xs ml-auto" style={{ color: "var(--subtle-fg)" }}>
               <Server className="h-3 w-3" />

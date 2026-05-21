@@ -7,6 +7,12 @@ export interface OpenResultOk {
   handle: number;
   display: string;
   sessionLabel: string;
+  /** Profile backing this connection, if any. Used by the renderer to offer
+   *  "enable legacy compatibility & retry" when SSH fails with a no-matching-
+   *  algorithm error. Null for connections with no associated profile. */
+  profileId: number | null;
+  /** Saved-session id, if this terminal is for a saved session (vs. ad-hoc). */
+  sessionId: number | null;
 }
 export interface OpenResultErr {
   ok: false;

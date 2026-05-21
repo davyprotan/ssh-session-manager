@@ -60,6 +60,7 @@ export async function POST(req: NextRequest) {
     serverAliveInterval: profile.server_alive_interval || 0,
     extraArgs: profile.extra_args || "",
     compatLegacy: !!profile.compat_legacy,
+    authType: (profile.auth_type as "key" | "key_with_passphrase" | "password" | undefined) ?? "",
   });
 
   if (!result.ok) {

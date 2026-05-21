@@ -21,6 +21,18 @@ import { WebglAddon } from "@xterm/addon-webgl";
 import { CanvasAddon } from "@xterm/addon-canvas";
 import "@xterm/xterm/css/xterm.css";
 import { Loader2, AlertCircle, Terminal as TerminalIcon, X, RotateCw } from "lucide-react";
+import { toast } from "sonner";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import type { Profile } from "@/lib/types";
 
 const AUTO_FILL_KEY = "ssh-manager-autofill-enabled";
 const COPY_ON_SELECT_KEY = "ssh-manager-copy-on-select";
@@ -78,6 +90,29 @@ const TEXT_DECODER = new TextDecoder("utf-8", { fatal: false });
 // attempts. Kept conservative so we don't hammer flapping hosts.
 const RECONNECT_BACKOFF_SECONDS: readonly number[] = [2, 5, 10];
 
+// Sliding window of recent decoded PTY output we keep around to scan after
+// exit. 8 KB is more than enough to catch the OpenSSH error line, and small
+// enough that the per-chunk slice cost is negligible.
+const ERROR_TAIL_BYTES = 8 * 1024;
+
+// OpenSSH error strings emitted when modern client meets legacy gear that
+// only supports SHA-1 KEX / ssh-rsa host keys / CBC ciphers / etc. The
+// "invalid format" line also surfaces from broken host key negotiation on
+// these devices. If any of these appears in the tail and SSH exits non-zero
+// before authenticating, we offer to flip `compat_legacy` on the profile.
+const LEGACY_ALGO_PATTERNS: readonly RegExp[] = [
+  /no matching key exchange method found/i,
+  /no matching host key type found/i,
+  /no matching cipher found/i,
+  /no matching MAC found/i,
+  /Unable to negotiate with .* port \d+:/i,
+  /ssh_dispatch_run_fatal: .* invalid format/i,
+];
+
+function tailMatchesLegacyAlgoFailure(tail: string): boolean {
+  return LEGACY_ALGO_PATTERNS.some((re) => re.test(tail));
+}
+
 export default function Terminal({ target, label, onExit, onClose }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<XTerm | null>(null);
@@ -89,6 +124,12 @@ export default function Terminal({ target, label, onExit, onClose }: Props) {
   // instance (and therefore without losing scrollback).
   const reconnectRef = useRef<(() => void) | null>(null);
   const [state, setState] = useState<ConnState>({ phase: "idle" });
+  // Set when the most recent exit looked like "modern OpenSSH refused to
+  // negotiate with legacy gear" — drives the prompt that offers to enable
+  // compat_legacy on the underlying profile and retry. profileId may be null
+  // if the bridge could not associate the connection with a saved profile.
+  const [legacyPrompt, setLegacyPrompt] = useState<{ profileId: number | null } | null>(null);
+  const [legacyApplying, setLegacyApplying] = useState(false);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -244,6 +285,11 @@ export default function Terminal({ target, label, onExit, onClose }: Props) {
       connectHandlers.length = 0;
     }
 
+    // Profile id for the currently-open pty, captured from the open() result.
+    // Used by the legacy-algo prompt to PATCH the right profile. Null when
+    // the connection isn't backed by a saved profile.
+    let currentProfileId: number | null = null;
+
     // Auto-reconnect state. Counter increments on every consecutive
     // network-failure exit and resets the moment we land in "connected".
     let reconnectAttempt = 0;
@@ -330,10 +376,23 @@ export default function Terminal({ target, label, onExit, onClose }: Props) {
       const handle = res.handle;
       handleRef.current = handle;
       ptyHandle = handle;
+      currentProfileId = res.profileId;
       // A successful (re)connect clears the auto-reconnect attempt counter
       // so the next unrelated network blip gets the full retry budget again.
       reconnectAttempt = 0;
       setState({ phase: "connected", handle, display: res.display });
+
+      // Rolling buffer of recent decoded output for post-mortem error
+      // pattern matching. Reset each (re)connect so old output from a prior
+      // session doesn't trigger a false-positive prompt. Uses a dedicated
+      // streaming decoder so partial multibyte chars at the chunk boundary
+      // don't get mixed with the (non-streaming) fallback decode that xterm
+      // uses below if its native chunk write throws.
+      let errorTail = "";
+      const errorTailDecoder = new TextDecoder("utf-8", { fatal: false });
+      function appendToErrorTail(chunk: Uint8Array) {
+        errorTail = (errorTail + errorTailDecoder.decode(chunk, { stream: true })).slice(-ERROR_TAIL_BYTES);
+      }
 
       // Defensive: if cols/rows drifted between spawn and now (very fast
       // double-fit, container layout settling), force one resync.
@@ -343,8 +402,11 @@ export default function Terminal({ target, label, onExit, onClose }: Props) {
       }
       bridge.resize(handle, latestCols, latestRows).catch(() => { /* ignore */ });
 
-      // Pipe pty data → terminal.
+      // Pipe pty data → terminal. We also tee a copy into the rolling tail
+      // buffer so the exit handler below can scan it for known SSH error
+      // patterns without us having to re-read from xterm's scrollback.
       const offData = bridge.onData(handle, (chunk) => {
+        appendToErrorTail(chunk);
         try { term.write(chunk); }
         catch { term.write(TEXT_DECODER.decode(chunk)); }
       });
@@ -353,6 +415,21 @@ export default function Terminal({ target, label, onExit, onClose }: Props) {
         try {
           term.write(`\r\n\x1b[2m[disconnected — exit ${info.exitCode}${info.signal ? `, signal ${info.signal}` : ""}]\x1b[0m\r\n`);
         } catch { /* ignore */ }
+
+        // If the failure mode is "modern OpenSSH refused to negotiate with
+        // legacy algorithms" (a fixable config issue, not a network blip),
+        // skip auto-reconnect and offer to enable compat_legacy on the
+        // profile. Without this, the auto-reconnect loop would just burn
+        // through its budget hitting the same algorithm wall every time.
+        const looksLikeLegacyAlgoFailure =
+          !info.signal && info.exitCode !== 0 && tailMatchesLegacyAlgoFailure(errorTail);
+        if (!aborted && looksLikeLegacyAlgoFailure) {
+          setLegacyPrompt({ profileId: currentProfileId });
+          setState({ phase: "exited", exitCode: info.exitCode, signal: info.signal });
+          onExit?.(info);
+          return;
+        }
+
         // OpenSSH exits 255 for "ssh itself failed" — almost always a
         // dropped link (the keepalive defaults in buildSshArgs ensure this
         // surfaces within ~90s of network loss). Anything else (0 = clean
@@ -431,6 +508,42 @@ export default function Terminal({ target, label, onExit, onClose }: Props) {
     target.kind === "session" ? target.sessionId : `${target.host}:${target.port ?? 22}@${target.profileId}`,
   ]);
 
+  async function enableCompatLegacyAndRetry(profileId: number) {
+    setLegacyApplying(true);
+    try {
+      // Fetch the full profile, flip compat_legacy, PUT it back. The PUT
+      // endpoint requires a complete object (see /api/profiles/[id]/route.ts)
+      // and preserves the keychain link when no `password` field is sent.
+      const listRes = await fetch("/api/profiles");
+      if (!listRes.ok) throw new Error(`profile lookup failed (${listRes.status})`);
+      const profiles = (await listRes.json()) as Profile[];
+      const profile = profiles.find((p) => p.id === profileId);
+      if (!profile) throw new Error("profile no longer exists");
+
+      // parseProfile on the server reads only known keys, so passing the
+      // join-only `has_password` flag through is harmless. We don't include
+      // `password` either — the PUT endpoint preserves the keychain link
+      // when no fresh secret is supplied.
+      const body = { ...profile, compat_legacy: 1 };
+      const putRes = await fetch(`/api/profiles/${profileId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!putRes.ok) {
+        const errBody = (await putRes.json().catch(() => ({}))) as { error?: string };
+        throw new Error(errBody.error || `update failed (${putRes.status})`);
+      }
+      toast.success("Legacy compatibility enabled — reconnecting…");
+      setLegacyPrompt(null);
+      reconnectRef.current?.();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to enable legacy compatibility");
+    } finally {
+      setLegacyApplying(false);
+    }
+  }
+
   return (
     <div className="flex flex-col h-full" style={{ background: "#0d1117" }}>
       {/* Header strip */}
@@ -485,6 +598,53 @@ export default function Terminal({ target, label, onExit, onClose }: Props) {
           <span>{state.error}</span>
         </div>
       )}
+
+      <AlertDialog open={legacyPrompt !== null} onOpenChange={(open) => { if (!open) setLegacyPrompt(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Enable legacy SSH compatibility?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {legacyPrompt?.profileId != null ? (
+                <>
+                  This host only accepts older SSH algorithms (SHA-1 key
+                  exchange, ssh-rsa host keys, or CBC ciphers) that modern
+                  OpenSSH disables by default. Enabling{" "}
+                  <span className="font-mono">Legacy compatibility</span> on
+                  this profile appends the legacy algorithms to the
+                  negotiation list so the connection can complete.
+                </>
+              ) : (
+                <>
+                  This host only accepts older SSH algorithms that modern
+                  OpenSSH disables by default. This session isn&apos;t tied
+                  to a saved profile, so there&apos;s nothing here to flip —
+                  open the host&apos;s profile in the sidebar and enable{" "}
+                  <span className="font-mono">Legacy compatibility</span>{" "}
+                  under Advanced.
+                </>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={legacyApplying}>
+              {legacyPrompt?.profileId != null ? "Not now" : "Close"}
+            </AlertDialogCancel>
+            {legacyPrompt?.profileId != null ? (
+              <AlertDialogAction
+                disabled={legacyApplying}
+                onClick={(e) => {
+                  e.preventDefault();
+                  if (legacyPrompt?.profileId != null) {
+                    void enableCompatLegacyAndRetry(legacyPrompt.profileId);
+                  }
+                }}
+              >
+                {legacyApplying ? "Enabling…" : "Enable & retry"}
+              </AlertDialogAction>
+            ) : null}
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
