@@ -53,7 +53,7 @@ let _config = {
   onPtyData: null,
 };
 
-function internalGet(pathname) {
+function internalGet(pathname, { timeoutMs = 5000 } = {}) {
   return new Promise((resolve, reject) => {
     const url = `${_config.appUrl}${pathname}`;
     const req = http.get(url, {
@@ -73,7 +73,7 @@ function internalGet(pathname) {
       });
     });
     req.on('error', reject);
-    req.setTimeout(5000, () => { req.destroy(new Error(`${pathname} timeout`)); });
+    req.setTimeout(timeoutMs, () => { req.destroy(new Error(`${pathname} timeout`)); });
   });
 }
 
@@ -123,7 +123,15 @@ function fetchAdHocSpawnPlan({ host, profileId, port, jumpHost }) {
 }
 
 function fetchProfileSecret(profileId) {
-  return internalGet(`/api/profiles/${encodeURIComponent(profileId)}/internal-secret`)
+  // The Next.js handler asks the OS keychain (Keychain Services on macOS) for
+  // the stored password. On a fresh install the OS first shows a "Allow this
+  // app to use stored credentials?" dialog which blocks until the user types
+  // their Mac password — easily 20–30s. The default 5s HTTP timeout was
+  // making the request error out mid-prompt, leaving autoFillState='failed'
+  // for the session and forcing the user to close and reopen for auto-fill
+  // to start working. Once access is granted, the keychain call returns
+  // instantly, so the long timeout is only paid once per install.
+  return internalGet(`/api/profiles/${encodeURIComponent(profileId)}/internal-secret`, { timeoutMs: 60_000 })
     .then((data) => (data && typeof data.password === 'string') ? data.password : null);
 }
 
