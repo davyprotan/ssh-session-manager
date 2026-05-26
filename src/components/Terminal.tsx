@@ -144,6 +144,13 @@ export default function Terminal({ target, label, onExit, onClose }: Props) {
 
     const term = new XTerm({
       fontSize: 13,
+      // lineHeight 1.0 makes each cell exactly fontSize tall, which leaves
+      // zero room for descenders (g/j/p/q/y) and the bottom strokes of
+      // some uppercase glyphs at sub-pixel positions — they get clipped on
+      // the last visible row regardless of container padding, because the
+      // clip happens inside the cell. 1.2 gives a couple of px of slack
+      // without noticeably changing line density.
+      lineHeight: 1.2,
       fontFamily: '"JetBrains Mono", "SF Mono", Menlo, Consolas, monospace',
       cursorBlink: true,
       allowProposedApi: true,
@@ -586,10 +593,7 @@ export default function Terminal({ target, label, onExit, onClose }: Props) {
       </div>
 
       {/* Terminal canvas */}
-      {/* pb-4 (16px) gives the FitAddon enough slack that the bottom row
-          never lands mid-cell — pb-2 was just under one cell of headroom on
-          some zoom levels and clipped the last line's descenders. */}
-      <div ref={containerRef} className="flex-1 min-h-0 px-2 pt-1 pb-4 overflow-hidden" />
+      <div ref={containerRef} className="flex-1 min-h-0 px-2 pt-1 pb-2 overflow-hidden" />
 
       {state.phase === "error" && (
         <div className="px-3 py-2 text-[12px] flex items-center gap-2 border-t" style={{
