@@ -18,7 +18,7 @@ const DB_PATH = path.join(DATA_DIR, 'sessions.db');
 const BACKUPS_DIR = path.join(DATA_DIR, 'backups');
 
 /** Current schema version. Bump only when adding/changing columns or tables. */
-const SCHEMA_VERSION = 6;
+const SCHEMA_VERSION = 7;
 
 if (!fs.existsSync(DATA_DIR)) {
   fs.mkdirSync(DATA_DIR, { recursive: true, mode: 0o700 });
@@ -37,19 +37,23 @@ export function getDb(): Database.Database {
   _db.pragma('foreign_keys = ON');
   migrate(_db);
   // Kick off the async post-migrations:
-  //   1. plaintext → keychain (legacy v0.7.x rows still in the password col)
-  //   2. relink orphaned keychain entries (v0.9.x PUT bug zeroed uses_keychain
-  //      when users edited profiles without re-typing the password)
-  // Both are idempotent and fire-and-forget. If they fail the row stays as
-  // it is and we'll try again on next launch.
+  //   1. legacy keytar → safeStorage (v0.9.x and earlier stored credentials
+  //      in the OS keychain via keytar; v7 moves them to password_enc as
+  //      safeStorage ciphertext)
+  //   2. plaintext → safeStorage (very old v0.7.x rows still in the password
+  //      column)
+  //   3. snapshot scrub (removes plaintext from pre-migration .db backups
+  //      once nothing in the live DB still holds it)
+  // All idempotent and fire-and-forget. If they fail the row stays as it is
+  // and we'll try again on next launch.
   if (!_deferredKicked) {
     _deferredKicked = true;
     queueMicrotask(() => {
       void (async () => {
-        try { await migratePlaintextPasswordsToKeychain(); }
-        catch (e) { console.warn('plaintext→keychain migration failed:', e); }
-        try { await relinkOrphanedKeychainProfiles(); }
-        catch (e) { console.warn('keychain relink failed:', e); }
+        try { await migrateLegacyKeytarToSafeStorage(); }
+        catch (e) { console.warn('keytar→safeStorage migration failed:', e); }
+        try { await migratePlaintextPasswordsToSafeStorage(); }
+        catch (e) { console.warn('plaintext→safeStorage migration failed:', e); }
         try { scrubPlaintextFromPreMigrationSnapshots(); }
         catch (e) { console.warn('snapshot scrub failed:', e); }
       })();
@@ -181,6 +185,13 @@ function migrate(db: Database.Database) {
   // v6: add legacy-SSH-compat flag — adds the well-known deprecated KEX /
   // host-key / cipher / MAC algos that old network gear still requires.
   ensureColumn(db, 'profiles', 'compat_legacy', 'compat_legacy INTEGER NOT NULL DEFAULT 0');
+  // v7: store passwords as safeStorage-encrypted blobs inside the DB itself
+  // instead of the OS keychain via keytar. keytar's NAPI wrapper can throw
+  // a C++ exception that bypasses JS try/catch and abort()s the main process
+  // (observed in v0.9.37 crash reports). safeStorage uses the same OS-backed
+  // key but runs entirely inside the Electron main process, so the steady-
+  // state code path has no native addon that can take the app down.
+  ensureColumn(db, 'profiles', 'password_enc', 'password_enc BLOB');
   ensureColumn(db, 'sessions', 'folder_id', 'folder_id INTEGER REFERENCES folders(id) ON DELETE SET NULL');
   ensureColumn(db, 'sessions', 'jump_host', 'jump_host TEXT');
 
@@ -204,18 +215,67 @@ function ensureColumn(db: Database.Database, table: string, column: string, ddl:
 }
 
 /**
- * Move any rows that still hold a plaintext password into the OS keychain.
- * Idempotent — re-runnable on every startup. Fails quietly per-row so a flaky
- * keychain doesn't block the rest of the migration. Audit-logs each success.
+ * For each profile whose secret still lives in the legacy keytar store
+ * (`uses_keychain = 1` AND `password_enc IS NULL`), pull the password out
+ * via the keychain bridge — which runs keytar inside an isolated
+ * utilityProcess so a keytar abort can't take down main — re-encrypt with
+ * safeStorage, and write the ciphertext into `password_enc`. The legacy
+ * keytar entry is then deleted on success.
  *
- * Why not run inside `migrate()`? Keychain access is async and requires a
- * native module. We don't want to make `getDb()` async, so this runs
- * fire-and-forget after the sync migration finishes.
+ * Idempotent: profiles already migrated are skipped because their
+ * password_enc is non-null. Profiles where keytar has no entry stay marked
+ * uses_keychain=1 with NULL password_enc — the user will be prompted to
+ * re-type their password on next use. We accept that small UX cost as the
+ * price of removing the abort risk entirely.
+ *
+ * Audit-logs each successful migration.
  */
-async function migratePlaintextPasswordsToKeychain(): Promise<void> {
+async function migrateLegacyKeytarToSafeStorage(): Promise<void> {
   if (!_db) return;
-  // Lazy-import to avoid a cycle (keychain is consumer of db only via callers,
-  // but audit imports getDb).
+  const { migrateLegacyKeytarEntry, isAvailable: bridgeAvailable } = await import('./keychain');
+  if (!(await bridgeAvailable())) return;
+
+  const rows = _db
+    .prepare(`
+      SELECT id, name FROM profiles
+      WHERE uses_keychain = 1 AND password_enc IS NULL
+    `)
+    .all() as Array<{ id: number; name: string }>;
+  if (rows.length === 0) return;
+
+  const { audit } = await import('./audit');
+  let migrated = 0;
+
+  for (const r of rows) {
+    try {
+      const ok = await migrateLegacyKeytarEntry(r.id);
+      if (!ok) continue;
+      audit({
+        event: 'profile.password_migrated_to_safestorage',
+        target_type: 'profile',
+        target_id: r.id,
+        target_label: r.name,
+      });
+      migrated++;
+    } catch (e) {
+      console.warn(`failed to migrate profile ${r.id} (${r.name}) from keytar to safeStorage:`, e);
+    }
+  }
+
+  if (migrated > 0) {
+    console.log(`[ssh-manager] migrated ${migrated} credential(s) from keytar to safeStorage`);
+  }
+}
+
+/**
+ * Move any rows that still hold a plaintext password (legacy v0.7.x storage)
+ * into safeStorage-encrypted ciphertext in `password_enc`.
+ *
+ * Idempotent — re-runnable on every startup. Fails quietly per-row so a
+ * flaky bridge doesn't block the rest of the migration.
+ */
+async function migratePlaintextPasswordsToSafeStorage(): Promise<void> {
+  if (!_db) return;
   const { setPassword: kcSet, isAvailable: kcAvailable } = await import('./keychain');
   if (!(await kcAvailable())) return;
 
@@ -231,7 +291,7 @@ async function migratePlaintextPasswordsToKeychain(): Promise<void> {
     try {
       const ok = await kcSet(r.id, r.password);
       if (!ok) continue;
-      _db.prepare('UPDATE profiles SET password = NULL, uses_keychain = 1 WHERE id = ?').run(r.id);
+      // kcSet already NULLs `password` and sets uses_keychain=1.
       audit({
         event: 'profile.password_migrated',
         target_type: 'profile',
@@ -240,65 +300,12 @@ async function migratePlaintextPasswordsToKeychain(): Promise<void> {
       });
       migrated++;
     } catch (e) {
-      console.warn(`failed to migrate profile ${r.id} (${r.name}) to keychain:`, e);
+      console.warn(`failed to migrate profile ${r.id} (${r.name}) to safeStorage:`, e);
     }
   }
 
   if (migrated > 0) {
-    console.log(`[ssh-manager] migrated ${migrated} plaintext password(s) into the OS keychain`);
-  }
-}
-
-/**
- * Re-attach the keychain link for any profile where:
- *   - auth_type implies a stored secret (password or key_with_passphrase)
- *   - uses_keychain == 0 in the DB
- *   - password column is null/empty (so there's nothing to "use" if we left
- *     uses_keychain at 0)
- *   - BUT the keychain still has an entry for that profile_id
- *
- * That state is the orphan footprint of a v0.9.x bug in PUT /api/profiles
- * where editing a profile without re-typing the password silently flipped
- * uses_keychain to 0. Auto-fill then can't find the secret. Re-running this
- * after the bug is fixed re-attaches the link without any user action.
- */
-async function relinkOrphanedKeychainProfiles(): Promise<void> {
-  if (!_db) return;
-  const { getPassword: kcGet, isAvailable: kcAvailable } = await import('./keychain');
-  if (!(await kcAvailable())) return;
-
-  const rows = _db
-    .prepare(`
-      SELECT id, name FROM profiles
-      WHERE (auth_type = 'password' OR auth_type = 'key_with_passphrase')
-        AND (uses_keychain IS NULL OR uses_keychain = 0)
-        AND (password IS NULL OR password = '')
-    `)
-    .all() as Array<{ id: number; name: string }>;
-  if (rows.length === 0) return;
-
-  const { audit } = await import('./audit');
-  let relinked = 0;
-
-  for (const r of rows) {
-    try {
-      const stored = await kcGet(r.id);
-      if (!stored) continue;
-      _db.prepare('UPDATE profiles SET uses_keychain = 1 WHERE id = ?').run(r.id);
-      audit({
-        event: 'profile.keychain_relinked',
-        target_type: 'profile',
-        target_id: r.id,
-        target_label: r.name,
-      });
-      relinked++;
-    } catch (e) {
-      console.warn(`failed to relink profile ${r.id} (${r.name}) to keychain:`, e);
-    }
-  }
-
-  if (relinked > 0) {
-    console.log(`[ssh-manager] re-linked ${relinked} profile(s) to existing keychain entries`);
+    console.log(`[ssh-manager] migrated ${migrated} plaintext password(s) into safeStorage`);
   }
 }
 

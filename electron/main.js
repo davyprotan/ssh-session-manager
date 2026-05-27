@@ -10,23 +10,14 @@ const keychainServer = require('./keychain-server');
 
 // Process-level safety nets.
 //
-// `keytar.node` (the macOS keychain binding) can throw a NAPI C++ exception
-// that escapes the JavaScript try/catch in keychain-server.js — the throw
-// happens synchronously inside the NAPI callback BEFORE `await` converts it
-// to a promise rejection. libc++abi then calls std::terminate() and the
-// whole Electron main process abort()s.
-//
-// Confirmed in v0.9.16 crash report — keytar.node frames terminating with
-// __cxa_throw → _objc_terminate → abort. Likely triggered when the
-// macOS keychain prompt is dismissed/timed-out or the requested item is in
-// an unexpected state (e.g. wrong ACL after a code-signing-hash change on
-// upgrade).
-//
-// We can't fix the upstream keytar bug here, but we can prevent the abort:
-// route every uncaught exception and unhandled rejection through a logger
-// so the app stays alive. Any individual keychain operation that triggered
-// the throw still fails (the affected request returns 500 from
-// keychain-server), but the user can retry.
+// Main does not load keytar anymore — credential storage now goes through
+// Electron's safeStorage via electron/keychain-server.js, and the one-shot
+// keytar→safeStorage migration runs inside a utilityProcess (see
+// electron/keytar-helper.js) so a keytar abort kills only that helper.
+// These handlers remain as a generic last-line-of-defence: any uncaught JS
+// exception is logged instead of crashing the app. They will NOT catch
+// native C++ exceptions from N-API addons (those bypass V8 entirely), but
+// no main-process addon currently throws that way.
 process.on('uncaughtException', (err) => {
   console.error('[main] uncaughtException — preventing abort:', err?.stack || err?.message || err);
 });
@@ -68,9 +59,8 @@ app.on('second-instance', () => {
 const INTERNAL_TOKEN = crypto.randomBytes(32).toString('hex');
 
 // Set when the keychain server has booted. Passed to the Next.js child via
-// env so server-side code can delegate keytar calls to the main process —
-// macOS attributes the keychain access dialog to "SSH Manager" (the bundle)
-// rather than "next-server" (the Node process title in the child).
+// env so server-side code can delegate safeStorage encrypt/decrypt calls to
+// the main process — safeStorage only exists in main, not in the Next child.
 let KEYCHAIN_URL = '';
 
 let mainWindow = null;
@@ -426,16 +416,15 @@ app.whenReady().then(async () => {
     ]));
   }
 
-  // Boot the in-process keychain delegation server FIRST so we can pass its
-  // URL to the Next.js child. macOS attributes keychain access dialogs to
-  // the process that calls keytar — running it from main means the dialog
-  // says "SSH Manager", not "next-server".
+  // Boot the in-process credential bridge FIRST so we can pass its URL to
+  // the Next.js child. safeStorage only exists in main; the child sends
+  // plaintext to /encrypt and stores the returned ciphertext in the DB.
   try {
     keychainServerHandle = await keychainServer.start(INTERNAL_TOKEN);
     KEYCHAIN_URL = keychainServerHandle.url;
     console.log(`[main] keychain server listening at ${KEYCHAIN_URL}`);
   } catch (err) {
-    console.error('[main] keychain server failed to start, falling back to in-Next keytar:', err?.message || err);
+    console.error('[main] keychain server failed to start:', err?.message || err);
     KEYCHAIN_URL = '';
   }
 
