@@ -191,7 +191,8 @@ export default function QuickConnectDialog({
       toast.success(`Connecting to ${host}`, { description: data.command });
       onClose();
     } else {
-      toast.error("Failed to connect");
+      const data = await res.json().catch(() => null);
+      toast.error("Failed to connect", { description: data?.error });
     }
   }, [host, port, saveSession, sessionName, useBuiltInTerminal, onOpenSavedInTerminal, onOpenAdHocInTerminal, onSessionSaved, onClose]);
 

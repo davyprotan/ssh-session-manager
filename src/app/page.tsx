@@ -221,7 +221,7 @@ export default function Home() {
       fetchSessions();
       fetchHistory();
     } else {
-      toast.error("Failed to open terminal");
+      toast.error("Failed to open terminal", { description: data.error });
     }
   }
 
@@ -556,7 +556,8 @@ export default function Home() {
                           fetchHistory();
                           fetchSessions();
                         } else {
-                          toast.error("Failed to reconnect");
+                          const data = await res.json().catch(() => null);
+                          toast.error("Failed to reconnect", { description: data?.error });
                         }
                       }}
                       onSaveAsSession={async (e) => {

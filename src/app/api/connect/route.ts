@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
-import { execFile } from 'child_process';
+import { execFile, execFileSync } from 'child_process';
+import { writeFileSync, mkdirSync, unlink } from 'fs';
+import { homedir } from 'os';
+import { join } from 'path';
+import { randomBytes } from 'crypto';
 import { buildSshArgs } from '@/lib/ssh-command';
 import { assertSafeOrigin } from '@/lib/api-guard';
 
@@ -23,6 +27,22 @@ interface SessionRow {
   port: number;
   jump_host?: string;
   profile_id?: number;
+}
+
+const PTY_EXHAUSTED_MESSAGE =
+  'macOS cannot allocate a new pseudo-terminal right now. This is the same system state that makes Terminal show "[forkpty: Device not configured]". Quit unused terminal windows; if it persists, restart macOS to reset the pty device table.';
+
+function canAllocatePty() {
+  if (process.platform !== 'darwin') return true;
+  try {
+    execFileSync('script', ['-q', '/dev/null', '/usr/bin/true'], {
+      stdio: 'ignore',
+      timeout: 3000,
+    });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export async function POST(req: NextRequest) {
@@ -111,47 +131,67 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: `Refused to connect: ${result.error}` }, { status: 400 });
   }
 
+  if (!canAllocatePty()) {
+    return NextResponse.json({ error: PTY_EXHAUSTED_MESSAGE }, { status: 503 });
+  }
+
   // Build the shell command. Each argv element is properly single-quoted.
   // single-quote escape: replace ' with '\''
   const sq = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
   const sshCmd = `ssh ${result.argv.map(sq).join(' ')}`;
 
-  // The SSH command is passed to AppleScript as a positional argument (osascript argv),
-  // not interpolated into the script source. This means the command bytes can contain
-  // anything — quotes, backslashes, newlines, AppleScript syntax — without being able
-  // to alter the script structure. AppleScript receives it as an opaque string.
-  // For iTerm2 we open a fresh window and TYPE the command into the user's normal login
-  // shell. When ssh exits the user is back at their shell prompt and can read the error
-  // until they close the window manually.
-  // For Terminal.app, `do script` already keeps the window open after the command exits.
-  const appleScript = `
-    on run argv
-      set theCmd to item 1 of argv
-      tell application "System Events"
-        set appList to name of every application process
-      end tell
-      if appList contains "iTerm2" or appList contains "iTerm" then
-        tell application "iTerm"
-          set newWindow to (create window with default profile)
-          tell current session of newWindow
-            write text theCmd
-          end tell
-          activate
-        end tell
-      else
-        tell application "Terminal"
-          do script theCmd
-          activate
-        end tell
-      end if
-    end run
-  `;
+  // ── How the command reaches each terminal app ──────────────────────────
+  // We do NOT script iTerm's window API. `create window with default profile`
+  // (with or without a `command`) proved unreliable in the field: on some
+  // profiles the session dies the instant it's created, `create window`
+  // returns `missing value` so there's no handle to write into, and iTerm's
+  // `command` tokenizer mangles quoted arguments. The net effect was a window
+  // that opened and closed instantly, or opened blank.
+  //
+  // Instead we use the mechanism macOS itself uses for "run this in a
+  // terminal": an executable `.command` file launched with `open`. iTerm (and
+  // Terminal) open a `.command` file by running it in a fresh session — no
+  // window scripting, no argument tokenizing, no session handle needed. The
+  // script runs ssh and then `exec`s an interactive login shell so the window
+  // stays open for the user to read any error. It holds no secret (ssh prompts
+  // for the password interactively) and deletes itself on first run.
+  //
+  // It lives under ~/.ssh-manager/ rather than os.tmpdir(): /var/folders/…
+  // temp paths can be unreadable by a separate process like iTerm, whereas a
+  // home-relative path is always readable by the same user.
+  let commandFile = '';
+  try {
+    const dir = join(homedir(), '.ssh-manager');
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    commandFile = join(dir, `launch-${randomBytes(8).toString('hex')}.command`);
+    const scriptBody =
+      `#!/bin/sh\n` +
+      `rm -f "$0"\n` +
+      `${sshCmd}\n` +
+      `printf '%s\\n' "── ssh exited (status $?) — you are now in a shell ──"\n` +
+      `exec "\${SHELL:-/bin/zsh}" -il\n`;
+    writeFileSync(commandFile, scriptBody, { mode: 0o700 });
+    // Belt-and-suspenders cleanup if the file is never opened. It self-deletes
+    // on run, so this is a no-op on the happy path.
+    setTimeout(() => unlink(commandFile, () => {}), 30000);
+  } catch (e) {
+    console.warn('could not stage terminal launch script:', e instanceof Error ? e.message : String(e));
+    commandFile = '';
+  }
 
-  // Use execFile (no shell). The `--` separator prevents any leading dash in sshCmd
-  // from being parsed as an osascript flag.
-  execFile('osascript', ['-e', appleScript, '--', sshCmd], (err) => {
-    if (err) console.error('AppleScript error:', err);
-  });
+  if (commandFile) {
+    // Prefer iTerm if it's installed; fall back to the user's default terminal.
+    // `open -a iTerm <file>` launches iTerm and runs the .command file; if iTerm
+    // isn't present, `open` (no -a) routes to whatever the user's default
+    // terminal is. We try iTerm first and fall back on failure.
+    execFile('open', ['-a', 'iTerm', commandFile], (err) => {
+      if (err) {
+        execFile('open', [commandFile], (err2) => {
+          if (err2) console.error('failed to open terminal:', err2);
+        });
+      }
+    });
+  }
 
   // Log to history (best-effort; never block the connection on this)
   try {
