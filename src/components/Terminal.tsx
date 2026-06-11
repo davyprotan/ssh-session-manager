@@ -89,6 +89,7 @@ const TEXT_DECODER = new TextDecoder("utf-8", { fatal: false });
 // Each value is the delay BEFORE that attempt, in seconds. Length = max
 // attempts. Kept conservative so we don't hammer flapping hosts.
 const RECONNECT_BACKOFF_SECONDS: readonly number[] = [2, 5, 10];
+const RECONNECT_STABLE_RESET_MS = 30_000;
 
 // Sliding window of recent decoded PTY output we keep around to scan after
 // exit. 8 KB is more than enough to catch the OpenSSH error line, and small
@@ -298,13 +299,22 @@ export default function Terminal({ target, label, onExit, onClose }: Props) {
     let currentProfileId: number | null = null;
 
     // Auto-reconnect state. Counter increments on every consecutive
-    // network-failure exit and resets the moment we land in "connected".
+    // network-failure exit. It only resets after the replacement SSH session
+    // stays alive long enough to count as stable; otherwise an instant
+    // connect→exit 255 loop would reset the budget forever.
     let reconnectAttempt = 0;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     let reconnectTicker: ReturnType<typeof setInterval> | null = null;
+    let stableReconnectResetTimer: ReturnType<typeof setTimeout> | null = null;
     function cancelPendingReconnect() {
       if (reconnectTimer != null) { clearTimeout(reconnectTimer); reconnectTimer = null; }
       if (reconnectTicker != null) { clearInterval(reconnectTicker); reconnectTicker = null; }
+    }
+    function cancelStableReconnectReset() {
+      if (stableReconnectResetTimer != null) {
+        clearTimeout(stableReconnectResetTimer);
+        stableReconnectResetTimer = null;
+      }
     }
     function scheduleAutoReconnect() {
       cancelPendingReconnect();
@@ -341,6 +351,7 @@ export default function Terminal({ target, label, onExit, onClose }: Props) {
 
       // Tear down any handlers from the previous (now-dead) pty.
       disposeConnectHandlers();
+      cancelStableReconnectReset();
       const oldHandle = ptyHandle;
       ptyHandle = null;
       handleRef.current = null;
@@ -384,10 +395,11 @@ export default function Terminal({ target, label, onExit, onClose }: Props) {
       handleRef.current = handle;
       ptyHandle = handle;
       currentProfileId = res.profileId;
-      // A successful (re)connect clears the auto-reconnect attempt counter
-      // so the next unrelated network blip gets the full retry budget again.
-      reconnectAttempt = 0;
       setState({ phase: "connected", handle, display: res.display });
+      stableReconnectResetTimer = setTimeout(() => {
+        if (!aborted && handleRef.current === handle) reconnectAttempt = 0;
+        stableReconnectResetTimer = null;
+      }, RECONNECT_STABLE_RESET_MS);
 
       // Rolling buffer of recent decoded output for post-mortem error
       // pattern matching. Reset each (re)connect so old output from a prior
@@ -419,6 +431,7 @@ export default function Terminal({ target, label, onExit, onClose }: Props) {
       });
 
       const offExit = bridge.onExit(handle, (info) => {
+        cancelStableReconnectReset();
         try {
           term.write(`\r\n\x1b[2m[disconnected — exit ${info.exitCode}${info.signal ? `, signal ${info.signal}` : ""}]\x1b[0m\r\n`);
         } catch { /* ignore */ }
@@ -449,6 +462,11 @@ export default function Terminal({ target, label, onExit, onClose }: Props) {
         if (!aborted && isNetworkFailure && budgetLeft) {
           scheduleAutoReconnect();
         } else {
+          if (!aborted && isNetworkFailure && !budgetLeft) {
+            try {
+              term.write("\x1b[2m[auto-reconnect stopped after repeated failures — use Reconnect to try again]\x1b[0m\r\n");
+            } catch { /* ignore */ }
+          }
           setState({ phase: "exited", exitCode: info.exitCode, signal: info.signal });
         }
         onExit?.(info);
@@ -465,7 +483,10 @@ export default function Terminal({ target, label, onExit, onClose }: Props) {
     // Expose reconnect to the JSX. The button calls this; the existing
     // useEffect mount/unmount stays untouched — we never tear down xterm
     // for a reconnect, so scrollback survives.
-    reconnectRef.current = () => { void doConnect(true); };
+    reconnectRef.current = () => {
+      reconnectAttempt = 0;
+      void doConnect(true);
+    };
 
     // Kick off the initial connect.
     void doConnect(false);
@@ -486,6 +507,7 @@ export default function Terminal({ target, label, onExit, onClose }: Props) {
       aborted = true;
       reconnectRef.current = null;
       cancelPendingReconnect();
+      cancelStableReconnectReset();
       ro.disconnect();
       cancelAnimationFrame(raf);
       cleanupContainer?.removeEventListener("mouseup", onMouseUp);

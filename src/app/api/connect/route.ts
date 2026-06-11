@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
-import { execFile, execFileSync } from 'child_process';
-import { writeFileSync, mkdirSync, unlink } from 'fs';
+import { execFile } from 'child_process';
+import { writeFileSync, mkdirSync, unlink, readdirSync, statSync, unlinkSync } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
 import { randomBytes } from 'crypto';
@@ -29,20 +29,26 @@ interface SessionRow {
   profile_id?: number;
 }
 
-const PTY_EXHAUSTED_MESSAGE =
-  'macOS cannot allocate a new pseudo-terminal right now. This is the same system state that makes Terminal show "[forkpty: Device not configured]". Quit unused terminal windows; if it persists, restart macOS to reset the pty device table.';
+const EXTERNAL_TERMINAL_LIMIT = 32;
+const ACTIVE_LOCK_PREFIX = 'active-';
+const ACTIVE_LOCK_STALE_MS = 7 * 24 * 60 * 60 * 1000;
 
-function canAllocatePty() {
-  if (process.platform !== 'darwin') return true;
-  try {
-    execFileSync('script', ['-q', '/dev/null', '/usr/bin/true'], {
-      stdio: 'ignore',
-      timeout: 3000,
-    });
-    return true;
-  } catch {
-    return false;
+function cleanupStaleExternalLocks(dir: string) {
+  const now = Date.now();
+  for (const name of readdirSync(dir)) {
+    if (!name.startsWith(ACTIVE_LOCK_PREFIX) || !name.endsWith('.lock')) continue;
+    const file = join(dir, name);
+    try {
+      if (now - statSync(file).mtimeMs > ACTIVE_LOCK_STALE_MS) unlinkSync(file);
+    } catch {
+      // Best effort. If a marker races with a terminal exit, the next connect
+      // will see the cleaned-up state.
+    }
   }
+}
+
+function countExternalLocks(dir: string) {
+  return readdirSync(dir).filter((name) => name.startsWith(ACTIVE_LOCK_PREFIX) && name.endsWith('.lock')).length;
 }
 
 export async function POST(req: NextRequest) {
@@ -131,10 +137,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: `Refused to connect: ${result.error}` }, { status: 400 });
   }
 
-  if (!canAllocatePty()) {
-    return NextResponse.json({ error: PTY_EXHAUSTED_MESSAGE }, { status: 503 });
-  }
-
   // Build the shell command. Each argv element is properly single-quoted.
   // single-quote escape: replace ' with '\''
   const sq = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
@@ -152,9 +154,11 @@ export async function POST(req: NextRequest) {
   // terminal": an executable `.command` file launched with `open`. iTerm (and
   // Terminal) open a `.command` file by running it in a fresh session — no
   // window scripting, no argument tokenizing, no session handle needed. The
-  // script runs ssh and then `exec`s an interactive login shell so the window
-  // stays open for the user to read any error. It holds no secret (ssh prompts
-  // for the password interactively) and deletes itself on first run.
+  // script runs ssh directly and exits when ssh exits. On failure it pauses
+  // briefly so the user can read the error, then exits instead of dropping
+  // into a shell forever. That matters on macOS: every live shell keeps a
+  // pseudo-terminal allocated, and enough stale post-ssh shells eventually
+  // make Terminal/iTerm and node-pty fail with forkpty/posix_spawnp errors.
   //
   // It lives under ~/.ssh-manager/ rather than os.tmpdir(): /var/folders/…
   // temp paths can be unreadable by a separate process like iTerm, whereas a
@@ -163,13 +167,30 @@ export async function POST(req: NextRequest) {
   try {
     const dir = join(homedir(), '.ssh-manager');
     mkdirSync(dir, { recursive: true, mode: 0o700 });
-    commandFile = join(dir, `launch-${randomBytes(8).toString('hex')}.command`);
+    cleanupStaleExternalLocks(dir);
+    const activeCount = countExternalLocks(dir);
+    if (activeCount >= EXTERNAL_TERMINAL_LIMIT) {
+      return NextResponse.json({
+        error: `SSH Manager already has ${activeCount} external terminal sessions open. Close a few Terminal/iTerm SSH sessions before opening more.`,
+      }, { status: 429 });
+    }
+
+    const token = randomBytes(8).toString('hex');
+    commandFile = join(dir, `launch-${token}.command`);
+    const activeFile = join(dir, `${ACTIVE_LOCK_PREFIX}${token}.lock`);
     const scriptBody =
       `#!/bin/sh\n` +
-      `rm -f "$0"\n` +
+      `active_file=${sq(activeFile)}\n` +
+      `printf '%s\\n' "$$" > "$active_file"\n` +
+      `cleanup() { rm -f "$active_file" "$0"; }\n` +
+      `trap cleanup EXIT HUP INT TERM\n` +
       `${sshCmd}\n` +
-      `printf '%s\\n' "── ssh exited (status $?) — you are now in a shell ──"\n` +
-      `exec "\${SHELL:-/bin/zsh}" -il\n`;
+      `status=$?\n` +
+      `if [ "$status" -ne 0 ]; then\n` +
+      `  printf '%s\\n' "ssh exited with status $status. This window will close in 30 seconds."\n` +
+      `  sleep 30\n` +
+      `fi\n` +
+      `exit "$status"\n`;
     writeFileSync(commandFile, scriptBody, { mode: 0o700 });
     // Belt-and-suspenders cleanup if the file is never opened. It self-deletes
     // on run, so this is a no-op on the happy path.
