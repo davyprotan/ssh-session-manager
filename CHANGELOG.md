@@ -2,6 +2,22 @@
 
 All notable changes to **SSH Manager**.
 
+## [0.9.39] — 2026-06-16
+
+### Fix: stop pty exhaustion and reconnect spam
+This release ships the terminal stability fixes merged after v0.9.38:
+
+- Built-in terminal spawn failures caused by macOS pty exhaustion now show a
+  clear explanation instead of the raw `posix_spawnp` error.
+- External iTerm/Terminal launches no longer leave a login shell alive after
+  SSH exits. Failed SSH launches stay visible briefly, then close and release
+  their pseudo-terminal.
+- SSH Manager now caps the number of external terminal sessions it launches
+  and cleans up its active-session markers automatically.
+- Automatic reconnects are bounded: quick repeated `exit 255` failures stop
+  after the retry budget instead of resetting forever on each short-lived
+  reconnect. Manual **Reconnect** still starts a fresh user-driven attempt.
+
 ## [0.9.36] — 2026-05-19
 
 ### Fix: bundled native modules built against the wrong Node ABI
