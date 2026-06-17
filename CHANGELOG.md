@@ -2,6 +2,17 @@
 
 All notable changes to **SSH Manager**.
 
+## [0.9.40] — 2026-06-17
+
+### Fix: accurate diagnosis for terminal spawn failures
+- Built-in terminal spawn failures now probe live system state and report the
+  real cause. node-pty collapses several distinct failures into one bare
+  `posix_spawnp failed.` string, so the previous message always blamed pty
+  exhaustion and told you to restart macOS — even when the ptys had plenty of
+  headroom and the real cause was the per-user process cap or a missing `ssh`
+  binary. The message now only recommends a restart when the ptys really are
+  near the limit, and otherwise points at the actual culprit. (electron/lib/spawn-diagnostics.js)
+
 ## [0.9.39] — 2026-06-16
 
 ### Fix: stop pty exhaustion and reconnect spam

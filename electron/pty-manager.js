@@ -25,6 +25,7 @@
 const { ipcMain, BrowserWindow } = require('electron');
 const http = require('http');
 const { scanForPrompt } = require('./lib/prompt-detector');
+const { diagnoseSpawnFailure } = require('./lib/spawn-diagnostics');
 
 let nodePty = null;
 function loadPty() {
@@ -43,19 +44,6 @@ const MAX_SESSIONS_PER_WINDOW = 16;
 // Tail kept in memory for prompt detection. Small — passwords prompts always
 // appear within a few hundred bytes of the connect handshake.
 const PROMPT_TAIL_BYTES = 4 * 1024;
-const PTY_EXHAUSTED_MESSAGE =
-  'macOS could not allocate a pseudo-terminal. Terminal/iTerm will show "[forkpty: Device not configured]" in this state too. Quit unused terminal windows; if it persists, restart macOS to reset the pty device table.';
-
-function spawnErrorMessage(err) {
-  const message = String(err?.message || err || '');
-  if (/forkpty|openpty|out of pty|Device not configured/i.test(message)) {
-    return PTY_EXHAUSTED_MESSAGE;
-  }
-  if (/posix_spawnp/i.test(message)) {
-    return `${message}. If Terminal/iTerm also cannot open new windows, macOS is likely out of pseudo-terminals; restart macOS to reset the pty device table.`;
-  }
-  return message || 'unknown error';
-}
 
 let _nextHandle = 1;
 const sessions = new Map(); // handle -> { pty, ownerId, audit, ringBytes, autoFillState, promptTail }
@@ -300,6 +288,13 @@ function register(config) {
     const cols = Math.max(20, Math.min(500, Number(payload?.cols) || 80));
     const rows = Math.max(5, Math.min(200, Number(payload?.rows) || 24));
 
+    const spawnEnv = {
+      ...process.env,
+      TERM: 'xterm-256color',
+      DISPLAY: '',
+      SSH_ASKPASS: '',
+    };
+
     let ptyProc;
     try {
       ptyProc = pty.spawn('ssh', plan.argv, {
@@ -307,15 +302,12 @@ function register(config) {
         cols,
         rows,
         cwd: process.env.HOME || '/',
-        env: {
-          ...process.env,
-          TERM: 'xterm-256color',
-          DISPLAY: '',
-          SSH_ASKPASS: '',
-        },
+        env: spawnEnv,
       });
     } catch (err) {
-      return { ok: false, error: `spawn failed: ${spawnErrorMessage(err)}` };
+      // node-pty collapses several distinct failures into one bare string; probe
+      // live system state so the message names the real cause. See spawn-diagnostics.js.
+      return { ok: false, error: `spawn failed: ${diagnoseSpawnFailure(err, { pathEnv: spawnEnv.PATH })}` };
     }
 
     const handle = _nextHandle++;
