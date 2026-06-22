@@ -8,61 +8,51 @@ import {
 describe('buildSpawnDiagnosis', () => {
   const sshOk = '/usr/bin/ssh';
 
-  it('reports pty exhaustion for explicit forkpty errors regardless of headroom', () => {
+  it('reports a pty allocation failure for explicit forkpty errors', () => {
     const msg = buildSpawnDiagnosis({
       raw: 'forkpty(3) failed: Device not configured',
       sshPath: sshOk,
-      ptyCount: 10, // plenty of headroom, but the error names the pty subsystem
-      ptyMax: 511,
     });
-    expect(msg).toMatch(/out of pseudo-terminals/i);
-    expect(msg).toMatch(/restart macOS/i);
-    expect(msg).toContain('(10/511 in use)');
+    expect(msg).toMatch(/pseudo-terminal/i);
+    expect(msg).toMatch(/restart(ing)? macOS/i);
+    expect(msg).toContain('(forkpty(3) failed: Device not configured)');
   });
 
-  it('reports pty exhaustion when allocation is near the limit', () => {
+  it('treats other explicit pty-subsystem errors as pty failures', () => {
+    const msg = buildSpawnDiagnosis({
+      raw: 'openpty failed: out of ptys',
+      sshPath: sshOk,
+    });
+    expect(msg).toMatch(/pseudo-terminal/i);
+  });
+
+  it('does NOT blame ptys or suggest restart for the ambiguous spawn failure', () => {
+    // macOS gives us no reliable live pty count, so an ambiguous
+    // "posix_spawnp failed." must default to the process-cap explanation,
+    // never a confident "out of ptys / restart macOS".
     const msg = buildSpawnDiagnosis({
       raw: 'posix_spawnp failed.',
       sshPath: sshOk,
-      ptyCount: 505,
-      ptyMax: 511,
-    });
-    expect(msg).toMatch(/out of pseudo-terminals/i);
-    expect(msg).toMatch(/restart macOS/i);
-  });
-
-  it('does NOT blame ptys or suggest restart when ptys have headroom', () => {
-    const msg = buildSpawnDiagnosis({
-      raw: 'posix_spawnp failed.',
-      sshPath: sshOk,
-      ptyCount: 57,
-      ptyMax: 511,
     });
     expect(msg).toMatch(/temporary resource limit/i);
-    expect(msg).toMatch(/not pty exhaustion/i);
-    expect(msg).not.toMatch(/restart macOS/i);
+    expect(msg).toMatch(/per-user process cap/i);
+    expect(msg).not.toMatch(/out of pseudo-terminals/i);
+  });
+
+  it('never fabricates an in-use pty count like "527/511"', () => {
+    const msg = buildSpawnDiagnosis({
+      raw: 'posix_spawnp failed.',
+      sshPath: sshOk,
+    });
+    expect(msg).not.toMatch(/\d+\/\d+/);
   });
 
   it('reports a missing ssh binary instead of pty exhaustion', () => {
     const msg = buildSpawnDiagnosis({
       raw: 'posix_spawnp failed.',
       sshPath: null,
-      ptyCount: 57,
-      ptyMax: 511,
     });
     expect(msg).toMatch(/could not be found on PATH/i);
-    expect(msg).not.toMatch(/restart macOS/i);
-  });
-
-  it('still works when pty usage is unknown (no false counts, no restart advice)', () => {
-    const msg = buildSpawnDiagnosis({
-      raw: 'posix_spawnp failed.',
-      sshPath: sshOk,
-      ptyCount: NaN,
-      ptyMax: NaN,
-    });
-    expect(msg).toMatch(/could not start the ssh process/i);
-    expect(msg).not.toMatch(/\d+\/\d+/);
     expect(msg).not.toMatch(/restart macOS/i);
   });
 
@@ -70,35 +60,31 @@ describe('buildSpawnDiagnosis', () => {
     const msg = buildSpawnDiagnosis({
       raw: 'posix_spawnp failed.',
       sshPath: sshOk,
-      ptyCount: 57,
-      ptyMax: 511,
     });
     expect(msg).toContain('(posix_spawnp failed.)');
   });
 });
 
 describe('diagnoseSpawnFailure (with injected probes)', () => {
-  it('threads probe results into the diagnosis', () => {
-    const msg = diagnoseSpawnFailure(new Error('posix_spawnp failed.'), {
+  it('routes an explicit pty error to the pty-allocation message', () => {
+    const msg = diagnoseSpawnFailure(new Error('openpty failed'), {
       pathEnv: '/usr/bin',
       resolveExecutable: () => '/usr/bin/ssh',
-      getPtyUsage: () => ({ count: 600, max: 511 }),
     });
-    expect(msg).toMatch(/out of pseudo-terminals/i);
+    expect(msg).toMatch(/pseudo-terminal/i);
   });
 
-  it('survives a throwing pty probe and still gives a useful message', () => {
+  it('defaults an ambiguous failure to the process-cap message', () => {
     const msg = diagnoseSpawnFailure('posix_spawnp failed.', {
       resolveExecutable: () => '/usr/bin/ssh',
-      getPtyUsage: () => { throw new Error('boom'); },
     });
     expect(msg).toMatch(/could not start the ssh process/i);
+    expect(msg).not.toMatch(/\d+\/\d+/);
   });
 
-  it('accepts a plain string error', () => {
+  it('accepts a plain string error and detects a missing ssh binary', () => {
     const msg = diagnoseSpawnFailure('posix_spawnp failed.', {
       resolveExecutable: () => null,
-      getPtyUsage: () => ({ count: 0, max: 511 }),
     });
     expect(msg).toMatch(/could not be found on PATH/i);
   });
