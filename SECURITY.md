@@ -27,7 +27,7 @@ In scope:
 - The SQLite schema and migrations including the deferred plaintext→keychain migration (`src/lib/db.ts`)
 - The OS keychain integration (`src/lib/keychain.ts`) — including the refuse-plaintext-fallback policy
 - The SSH command builder (`src/lib/ssh-command.ts`) and body validators (`src/lib/validators.ts`)
-- The AppleScript-based terminal launcher in `src/app/api/connect/route.ts` (positional-argv invocation)
+- The terminal launchers: `src/app/api/connect/route.ts` (executable `.command` script run via `open`, with single-quote-escaped args) and `src/app/api/keys/copy-id/route.ts` (AppleScript `ssh-copy-id` via `osascript`, positional-argv invocation)
 - The built-in terminal: `electron/pty-manager.js`, `src/components/Terminal.tsx`, `src/lib/prompt-detector.ts` (TS) + `electron/lib/prompt-detector.js` (CJS twin, drift-tested)
 - The encrypted backup format (`src/lib/backup-crypto.ts` — AES-256-GCM + scrypt)
 - The decrypt-attempt rate limiter (`src/lib/rate-limit.ts`)
@@ -46,7 +46,7 @@ The app is designed to run **locally** on a single user's machine and bind to `1
 
 - **Drive-by CSRF from any browser tab on the same machine** — case-insensitive Origin/Referer guard (allowing `127.0.0.1`, `localhost`, and IPv6 `[::1]` on port 3005) on every API route
 - **Cross-site script / asset injection** — Content-Security-Policy (`default-src 'self'`, `frame-ancestors 'none'`, `object-src 'none'`) plus `X-Content-Type-Options`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, `Permissions-Policy`
-- **Command injection** — argv-based SSH builder with strict regexes; AppleScript via `execFile` (no shell), with the SSH command passed as a positional argv argument so the script source never contains attacker-influenced bytes
+- **Command injection** — argv-based SSH builder with strict regexes. Connect writes the command into an executable `.command` file launched via `open` (`execFile`, no shell), with every argv element single-quote-escaped (canonical POSIX `'\''`) before interpolation. `ssh-copy-id` passes its command to `osascript` via `execFile` (no shell) as a positional argv argument, so the AppleScript source never contains attacker-influenced bytes
 - **LAN exposure** — listener bound to `127.0.0.1`, never `0.0.0.0`
 - **Plaintext credential leak** — passwords go to the OS keychain only. The app refuses to fall back to SQLite plaintext if the keychain is unreachable (returns 503). A one-shot startup migration moves any pre-existing plaintext rows out of the database. `/api/export` strips secrets unless the user explicitly opts in or supplies an encryption password
 - **Keychain access attribution** — keychain calls happen inside the **Electron main process** (the actual `SSH Manager` bundle), not the bundled Next.js child. A small in-process HTTP server (`electron/keychain-server.js`, bound to `127.0.0.1`, OS-assigned port, gated by the same per-launch internal token as `assertInternal`) accepts keychain requests from the Next.js child. macOS attributes the keychain access dialog to "SSH Manager", and there is exactly one process identity per keychain ACL — simpler model, less surface area
