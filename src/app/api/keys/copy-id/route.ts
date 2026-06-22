@@ -64,7 +64,9 @@ export async function POST(req: NextRequest) {
   // The display text is passed to AppleScript as a positional argv argument,
   // not interpolated into the script source. This means the bytes can contain
   // anything (newlines, quotes, AppleScript syntax) without being able to
-  // alter the script structure — same hardening applied to /api/connect.
+  // alter the script structure. /api/connect reaches the same goal by a
+  // different route: it single-quote-escapes each arg into an executable
+  // .command file launched via `open` (no AppleScript on that path).
   const appleScript = `
     on run argv
       set theCmd to item 1 of argv

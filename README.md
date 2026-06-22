@@ -46,7 +46,8 @@ Defense-in-depth across credential storage, IPC, and HTTP boundaries.
 
 #### Command construction
 - **Argv-based SSH builder** with strict regexes — hostnames, ports, key paths, usernames each have safe-character allowlists. `extra_args` allowlisted to `-o Key[=Value]` only (valueless flags like `-o VisualHostKey` permitted)
-- **AppleScript invoked via `execFile`** (no shell) and **the SSH command is passed as a positional argv argument** to `osascript` (`on run argv`) — never interpolated into the script source, so quote/backslash/newline escaping cannot break out
+- **Connect launches an executable `.command` file, not a shell command line.** `/api/connect` writes the `ssh` invocation to a short-lived `~/.ssh-manager/launch-<token>.command` script (file mode `0700`, in a `0700` directory) and opens it with `execFile('open', …)` (no shell). The argv *is* interpolated into that script, but every element is wrapped with the canonical POSIX single-quote escape — single quotes around the value, any embedded `'` rewritten as `'\''` — so spaces, `$`, backticks, `;`, quotes, and newlines are all treated literally. The argv builder's allowlists already reject shell metacharacters upstream, so the quoting is defense-in-depth (and the layer that safely carries legitimate spaces in key paths)
+- **`ssh-copy-id` is dispatched via AppleScript positional argv.** `/api/keys/copy-id` invokes `osascript` with `execFile` (no shell) and passes the command as a positional `argv` argument (`on run argv`) — never interpolated into the AppleScript source, so quote/backslash/newline bytes can't break out of it. The command string carried inside is itself single-quote-escaped for the shell that iTerm/Terminal then runs
 - **`/api/validate-key`** sandboxed to `~/.ssh/` only
 
 #### Electron
@@ -124,6 +125,26 @@ For now we ship ad-hoc signed (free, but with the per-upgrade prompt). The trade
 
 A future release could add a **pre-emptive keychain prime** — on first launch the app deliberately writes a no-op entry so the prompt appears in a controlled moment we can explain *immediately before*, instead of when you happen to save your first profile. Tracked but not implemented yet — the welcome dialog is a lighter-weight alternative.
 
+### Terminal windows reopen with "pseudo-tty" errors after a restart
+
+If, after a reboot or re-login, you see one or more Terminal.app windows showing:
+
+```
+[Could not create a new process and open a pseudo-tty.]
+[forkpty: Device not configured]
+[Restored 22 Jun 2026 at 10:40:42]
+```
+
+…that is **macOS, not SSH Manager**. macOS "Reopen windows when logging back in" restores every Terminal.app window that was open at logout. Terminal.app keeps a window around after its shell exits (`[Process completed]`), so SSH windows you opened via **Open in iTerm / Terminal.app** accumulate and get restored all at once. Each restored window asks for a fresh pseudo-terminal, the system pty table is momentarily exhausted, and `forkpty` fails with `ENXIO` — which macOS renders as *"Device not configured."* The windows are harmless (the SSH session is long gone), just alarming.
+
+How to stop it:
+
+- **Use the built-in terminal** (the default **Connect** action). It runs in-app and is never part of macOS window restoration, so it can't hit this. This is the recommended path.
+- **If you prefer Terminal.app**, set **Terminal → Settings → Profiles → Shell → "When the shell exits"** to **"Close the window"** (or "Close if the shell exited cleanly"). Terminal then closes the window itself when SSH ends, so dead SSH windows never linger to be restored.
+- **Or** turn off restoration entirely: **Terminal → Settings → General → uncheck "Reopen windows when logging back in"** (and/or the system setting in **System Settings → Desktop & Dock**).
+
+The app can't close these windows for you — Terminal.app won't let a window be closed by AppleScript while a process is alive in it, and once the shell exits the window no longer has an identifier the app can target. Letting Terminal close its own windows (the setting above) is the only reliable fix on the Terminal.app side.
+
 ### Windows SmartScreen note
 
 Same idea — Windows will show "Windows protected your PC". Click **More info → Run anyway**.
@@ -141,7 +162,7 @@ When you double-click `SSH Manager.app`:
 
 Your data lives in **`~/.ssh-session-manager/sessions.db`** (SQLite). Your passwords (if any) live in the **macOS Keychain** under service `SSH Manager`.
 
-When you click **Connect**, the server runs an AppleScript via `osascript` that opens iTerm2 (or Terminal.app) with the SSH command pre-filled. The actual terminal session lives in your terminal app — scrollback, output, search, etc. are handled there.
+When you click **Connect**, the server writes the `ssh` invocation to a short-lived executable `~/.ssh-manager/launch-<token>.command` script and opens it with `open` (`execFile`, no shell). iTerm2 (or Terminal.app, as fallback) runs that script in a fresh window; it runs `ssh` directly and exits when the session ends. The actual terminal session lives in your terminal app — scrollback, output, search, etc. are handled there. (The separate "set up key-based auth" action does still use `osascript` to run `ssh-copy-id`.)
 
 ---
 
@@ -250,7 +271,7 @@ For personal use this is overkill. The current ad-hoc signing is fine.
 - **Local Next.js server, not pure Electron renderer code.** Keeps SQLite + Keychain access in one process and avoids IPC. Cost: ~5 sec cold start on first launch.
 - **No embedded terminal.** Re-implementing xterm.js + node-pty + an SSH client would 5× the surface area of the project. iTerm2 / Terminal.app already do this perfectly. The app generates the right `ssh` command and lets your terminal handle the rest.
 - **OS keychain over symmetric encryption with a master password.** OS-level secret storage is harder to misuse and integrates with biometric unlock. The app *refuses* the plaintext fallback path entirely — if the keychain is unreachable, profile saves return 503.
-- **AppleScript via positional argv, not string interpolation.** The SSH command is passed to `osascript` as `argv[1]`, never embedded in the script source — eliminates an entire class of escape-bypass bugs.
+- **Two terminal-launch paths, both shell-injection-hardened.** *Connect* writes the `ssh` command to an executable `.command` file and launches it with `open` (no shell); each argv element is single-quote-escaped (canonical POSIX `'\''`) before it goes into the script, on top of an argv builder that already allowlists every field. *Set up key-based auth* (`ssh-copy-id`) instead passes its command to `osascript` as a positional `argv` argument, never interpolated into the AppleScript source. Both avoid concatenating untrusted bytes into a command line.
 - **127.0.0.1 binding + CSP + origin guards.** Local apps that listen on the loopback are accessible from any other process or browser tab on the same machine. CSP blocks any external loads, and the origin guard rejects cross-site requests.
 
 ---

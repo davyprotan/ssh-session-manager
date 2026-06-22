@@ -2,8 +2,9 @@
 // validated argv to pass to node-pty. The renderer never has the internal
 // token, so this route is unreachable from the browser.
 //
-// Returns the same shape used by /api/connect's spawn step, minus the
-// AppleScript wrapping.
+// Returns the same validated argv /api/connect builds, minus the
+// external-terminal wrapping (the executable .command file /api/connect
+// writes and launches via `open`).
 
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";

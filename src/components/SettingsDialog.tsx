@@ -612,6 +612,21 @@ export default function SettingsDialog({ open, onClose, onChanged, onOpenSshImpo
                 <TerminalIcon className="h-3 w-3" />
                 Open a session via its card → <span className="font-mono">Open in built-in terminal</span>.
               </p>
+
+              {/* Caveat for the external iTerm/Terminal.app launch path. macOS
+                  restores Terminal.app windows on next login; restoring many
+                  dead SSH windows at once exhausts the pty table and shows
+                  "Could not create a new process and open a pseudo-tty". The
+                  app can't reliably close those windows, so we point Terminal
+                  users at the one setting that fixes it. The built-in terminal
+                  above is immune. */}
+              <div className="flex items-start gap-2 rounded-lg p-2.5 mt-3" style={{ background: "color-mix(in srgb, #fbbf24 8%, transparent)", border: "1px solid color-mix(in srgb, #fbbf24 25%, transparent)" }}>
+                <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5" style={{ color: "#fbbf24" }} />
+                <p className="text-[11px] leading-relaxed" style={{ color: "var(--muted-fg)" }}>
+                  Using <span className="font-mono">Open in iTerm / Terminal.app</span> instead? After a reboot, macOS may restore those windows with
+                  <span className="font-mono"> Could not create a new process and open a pseudo-tty</span> errors — that&apos;s macOS reopening dead SSH windows, not a crash. The built-in terminal above never does this. To fix it for Terminal.app, set <span className="font-mono">Terminal → Settings → Profiles → Shell → When the shell exits → Close the window</span> so Terminal closes finished SSH windows itself.
+                </p>
+              </div>
             </div>
           </Section>
 
