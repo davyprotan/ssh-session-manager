@@ -3,38 +3,58 @@
 // WHY THIS EXISTS:
 //
 //   On macOS, node-pty (1.1.0) throws a single bare string — "posix_spawnp
-//   failed." — for several unrelated failures, because its native code
-//   discards the real errno (see node_modules/node-pty/src/unix/pty.cc:372).
-//   That same path fires when:
-//     * the pty device table is exhausted (posix_openpt fails),
+//   failed." — for several unrelated failures, because its native code maps
+//   every early-exit in pty_posix_spawn to the same throw (the `err` variable
+//   starts at -1 and the pty-allocation failures return without resetting it;
+//   see node_modules/node-pty/src/unix/pty.cc:370). That same string fires
+//   when:
+//     * the pty device table is exhausted (posix_openpt → ENXIO/EAGAIN),
 //     * the per-user process cap is hit (posix_spawn → EAGAIN),
 //     * the ssh binary isn't on PATH (posix_spawn → ENOENT),
 //     * memory is exhausted (ENOMEM), etc.
 //
-//   We can't recover the errno, so we lean on the few signals that ARE
-//   trustworthy and refuse to guess beyond them.
+//   We can't recover node-pty's errno, so instead of GUESSING (an earlier
+//   version counted /dev/ttys nodes, which is unreliable) we DIRECTLY PROBE the
+//   one thing that matters: can the kernel hand out a pty right now? We attempt
+//   to open the pty master clone device (/dev/ptmx) and immediately close it.
+//   This is exactly the first thing node-pty does, so it reproduces the real
+//   failure with a real errno — no heuristics.
 //
-// WHY WE NO LONGER COUNT PTYS:
-//
-//   An earlier version probed pty pressure by counting /dev/ttysNNN nodes and,
-//   if the count was near kern.tty.ptmx_max, declared "out of pseudo-terminals,
-//   restart macOS". That count is WRONG: macOS materializes /dev/ttysNNN slave
-//   nodes on demand and never removes them for the rest of the boot session, so
-//   the count is a boot-session high-water mark, NOT a live in-use figure. On a
-//   machine with normal uptime it routinely sits in the hundreds (and can even
-//   exceed ptmx_max — we've observed 527 nodes against a 511 cap with zero ptys
-//   actually open), which is impossible for an "in use" metric. macOS exposes
-//   the cap (kern.tty.ptmx_max) but no current-count sysctl, so there is no
-//   cheap, reliable way to measure live ptys. The old heuristic therefore
-//   produced confident false positives — telling users to reboot when nothing
-//   was wrong. We removed it. Genuine pty failures still surface via the
-//   explicit error strings node-pty does emit (forkpty/openpty/ptmx/...).
+//   Why pty exhaustion needs a reboot on macOS: closing a pty does not always
+//   return its slave device node to the pool; nodes can linger for the rest of
+//   the boot session, so a machine that has churned through many terminals can
+//   hit the kern.tty.ptmx_max cap with almost nothing actually open. Once the
+//   probe returns ENXIO, no app on the system can spawn a pty until reboot.
 
 const fs = require('fs');
 
-// node-pty error strings that unambiguously mean "couldn't get a pty" (as
-// opposed to the ambiguous "posix_spawnp failed.").
+// node-pty error strings that unambiguously name the pty subsystem.
 const PTY_ERROR_RE = /forkpty|openpty|out of pty|Device not configured|ptmx|pseudo-?terminal/i;
+
+// errno codes from opening /dev/ptmx that mean "no pty available right now".
+const PTY_EXHAUSTED_CODES = new Set(['ENXIO', 'EAGAIN', 'EMFILE', 'ENFILE', 'ENOSPC', 'EBUSY']);
+
+/**
+ * Directly test whether the OS can allocate a pseudo-terminal right now by
+ * opening (and immediately closing) the master clone device. macOS and Linux
+ * both expose it at /dev/ptmx.
+ *
+ * @returns {'available'|'exhausted'|'unknown'}
+ */
+function probePtyAvailability({ open = fs.openSync, close = fs.closeSync } = {}) {
+  let fd;
+  try {
+    fd = open('/dev/ptmx', fs.constants.O_RDWR | fs.constants.O_NOCTTY);
+  } catch (e) {
+    const code = e && e.code;
+    if (PTY_EXHAUSTED_CODES.has(code)) return 'exhausted';
+    // ENOENT (no /dev/ptmx — not macOS/Linux), EACCES, anything else: we can't
+    // conclude exhaustion from this, so stay out of the way.
+    return 'unknown';
+  }
+  try { close(fd); } catch { /* ignore */ }
+  return 'available';
+}
 
 // Resolve `file` against a PATH string the same way execvp would, so our
 // "ssh not found" verdict matches what the child process actually sees.
@@ -52,6 +72,16 @@ function resolveOnPath(file, pathEnv) {
   return null;
 }
 
+function ptyExhaustedMessage(raw) {
+  return (
+    `macOS is out of pseudo-terminals — the kernel cannot allocate a new one ` +
+    `right now, so the ssh session can't start. Quit unused Terminal/iTerm ` +
+    `windows, SSH sessions, and other terminal-heavy apps to free some. On ` +
+    `macOS closed ptys can linger until reboot, so if connections keep failing ` +
+    `after closing things, restart macOS to reset the pty device table. (${raw})`
+  );
+}
+
 /**
  * Pure decision logic. Given the raw error plus already-probed system facts,
  * returns the message to show the user.
@@ -59,21 +89,16 @@ function resolveOnPath(file, pathEnv) {
  * @param {object} facts
  * @param {string} facts.raw       - raw error message from node-pty
  * @param {string|null} facts.sshPath - resolved path to the ssh binary, or null
+ * @param {'available'|'exhausted'|'unknown'} facts.ptyAvailability - probe result
  */
-function buildSpawnDiagnosis({ raw, sshPath }) {
+function buildSpawnDiagnosis({ raw, sshPath, ptyAvailability }) {
   const message = String(raw || '').trim() || 'unknown error';
 
-  // 1. Errors that explicitly name the pty subsystem are genuine pty failures.
-  //    node-pty surfaces these directly (forkpty/openpty/ptmx/...), so this is
-  //    a reliable signal — unlike counting device nodes.
-  if (PTY_ERROR_RE.test(message)) {
-    return (
-      `macOS could not allocate a pseudo-terminal for the ssh session. This ` +
-      `usually means too many terminals or shells are open at once — quit ` +
-      `unused Terminal/iTerm windows and other terminal-heavy apps, then ` +
-      `retry. If every new connection keeps failing, restarting macOS clears ` +
-      `the pty device table. (${message})`
-    );
+  // 1. Genuine pty exhaustion — confirmed by directly probing the kernel, or
+  //    named outright by node-pty. This is the case that actually needs a
+  //    reboot, so we only say so when we're sure.
+  if (ptyAvailability === 'exhausted' || PTY_ERROR_RE.test(message)) {
+    return ptyExhaustedMessage(message);
   }
 
   // 2. ssh binary missing → posix_spawn returns ENOENT. A restart never helps.
@@ -85,15 +110,13 @@ function buildSpawnDiagnosis({ raw, sshPath }) {
     );
   }
 
-  // 3. Ambiguous "posix_spawnp failed." with ssh present. The most common real
-  //    cause is the per-user process cap (EAGAIN), not pty exhaustion. We have
-  //    no trustworthy way to measure live ptys (see file header), so we must
-  //    NOT guess "out of ptys" or tell the user to reboot here.
+  // 3. Ambiguous "posix_spawnp failed." with ssh present AND ptys available.
+  //    The most common remaining cause is the per-user process cap (EAGAIN).
+  //    We do NOT suggest a reboot — the probe proved ptys are fine.
   return (
     `macOS could not start the ssh process. This is usually a temporary ` +
     `resource limit such as the per-user process cap — quit a few background ` +
-    `apps and try again. If every new connection fails, restarting the app ` +
-    `(or macOS) clears it. (${message})`
+    `apps and try again. (${message})`
   );
 }
 
@@ -103,24 +126,30 @@ function buildSpawnDiagnosis({ raw, sshPath }) {
  * @param {Error|string} err
  * @param {object} [opts]
  * @param {string} [opts.pathEnv]  - PATH the child was/would be spawned with
- * @param {function} [opts.resolveExecutable] - injectable for tests
+ * @param {function} [opts.resolveExecutable]   - injectable for tests
+ * @param {function} [opts.getPtyAvailability]  - injectable for tests
  */
 function diagnoseSpawnFailure(err, opts = {}) {
   const raw = String(err?.message || err || '').trim() || 'unknown error';
   const {
     pathEnv = process.env.PATH,
     resolveExecutable = resolveOnPath,
+    getPtyAvailability = probePtyAvailability,
   } = opts;
 
   let sshPath = null;
   try { sshPath = resolveExecutable('ssh', pathEnv); } catch { sshPath = null; }
 
-  return buildSpawnDiagnosis({ raw, sshPath });
+  let ptyAvailability = 'unknown';
+  try { ptyAvailability = getPtyAvailability(); } catch { ptyAvailability = 'unknown'; }
+
+  return buildSpawnDiagnosis({ raw, sshPath, ptyAvailability });
 }
 
 module.exports = {
   diagnoseSpawnFailure,
   buildSpawnDiagnosis,
+  probePtyAvailability,
   resolveOnPath,
   PTY_ERROR_RE,
 };
