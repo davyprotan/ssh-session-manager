@@ -124,6 +124,26 @@ For now we ship ad-hoc signed (free, but with the per-upgrade prompt). The trade
 
 A future release could add a **pre-emptive keychain prime** — on first launch the app deliberately writes a no-op entry so the prompt appears in a controlled moment we can explain *immediately before*, instead of when you happen to save your first profile. Tracked but not implemented yet — the welcome dialog is a lighter-weight alternative.
 
+### Terminal windows reopen with "pseudo-tty" errors after a restart
+
+If, after a reboot or re-login, you see one or more Terminal.app windows showing:
+
+```
+[Could not create a new process and open a pseudo-tty.]
+[forkpty: Device not configured]
+[Restored 22 Jun 2026 at 10:40:42]
+```
+
+…that is **macOS, not SSH Manager**. macOS "Reopen windows when logging back in" restores every Terminal.app window that was open at logout. Terminal.app keeps a window around after its shell exits (`[Process completed]`), so SSH windows you opened via **Open in iTerm / Terminal.app** accumulate and get restored all at once. Each restored window asks for a fresh pseudo-terminal, the system pty table is momentarily exhausted, and `forkpty` fails with `ENXIO` — which macOS renders as *"Device not configured."* The windows are harmless (the SSH session is long gone), just alarming.
+
+How to stop it:
+
+- **Use the built-in terminal** (the default **Connect** action). It runs in-app and is never part of macOS window restoration, so it can't hit this. This is the recommended path.
+- **If you prefer Terminal.app**, set **Terminal → Settings → Profiles → Shell → "When the shell exits"** to **"Close the window"** (or "Close if the shell exited cleanly"). Terminal then closes the window itself when SSH ends, so dead SSH windows never linger to be restored.
+- **Or** turn off restoration entirely: **Terminal → Settings → General → uncheck "Reopen windows when logging back in"** (and/or the system setting in **System Settings → Desktop & Dock**).
+
+The app can't close these windows for you — Terminal.app won't let a window be closed by AppleScript while a process is alive in it, and once the shell exits the window no longer has an identifier the app can target. Letting Terminal close its own windows (the setting above) is the only reliable fix on the Terminal.app side.
+
 ### Windows SmartScreen note
 
 Same idea — Windows will show "Windows protected your PC". Click **More info → Run anyway**.

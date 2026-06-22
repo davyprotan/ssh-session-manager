@@ -2,6 +2,29 @@
 
 All notable changes to **SSH Manager**.
 
+## [0.9.41] — 2026-06-22
+
+### Docs: explain (and point at the fix for) the macOS Terminal restore errors
+Added guidance for the boot-time errors that appear in restored Terminal.app
+windows after a reboot or re-login — `[Could not create a new process and open
+a pseudo-tty.]` / `[forkpty: Device not configured]` / `[Restored …]`. These
+are macOS reopening dead SSH windows (not a crash): "Reopen windows when logging
+back in" restores every Terminal.app window that was open at logout, and
+restoring many at once momentarily exhausts the system pty table so `forkpty`
+fails with `ENXIO`.
+
+- README troubleshooting section explaining the cause and the reliable fixes.
+- In-app note in **Settings → terminal** pointing Terminal.app users at the one
+  setting that prevents it — *Profiles → Shell → When the shell exits → Close
+  the window* — so Terminal closes finished SSH windows itself. The built-in
+  terminal (the default **Connect** action) is immune and unaffected.
+
+No behavior change: the app can't reliably close external Terminal.app windows
+itself — Terminal refuses to close a window while a process is alive in it, and
+the window loses any identifier the app could target once the shell exits — so
+the fix is the documented Terminal setting, not launcher code.
+(README.md, src/components/SettingsDialog.tsx)
+
 ## [0.9.40] — 2026-06-17
 
 ### Fix: accurate diagnosis for terminal spawn failures
