@@ -2,10 +2,27 @@
 
 import { useEffect, useState } from "react";
 import { Download, X, Sparkles } from "lucide-react";
+import packageJson from "../../package.json";
 
 const LAST_CHECK_KEY = "ssh-manager-last-update-check";
 const DISMISSED_VERSION_KEY = "ssh-manager-dismissed-version";
 const CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
+const APP_VERSION = packageJson.version;
+
+function parseSemver(v: string): [number, number, number] | null {
+  const m = v.replace(/^v/, "").match(/^(\d+)\.(\d+)\.(\d+)/);
+  if (!m) return null;
+  return [parseInt(m[1]), parseInt(m[2]), parseInt(m[3])];
+}
+
+function isNewer(latest: string, current: string): boolean {
+  const a = parseSemver(latest);
+  const b = parseSemver(current);
+  if (!a || !b) return false;
+  if (a[0] !== b[0]) return a[0] > b[0];
+  if (a[1] !== b[1]) return a[1] > b[1];
+  return a[2] > b[2];
+}
 
 interface UpdateInfo {
   available: boolean;
@@ -52,6 +69,12 @@ export default function UpdateBanner() {
   }, []);
 
   if (!info?.available || !info.latest) return null;
+
+  // The cached `available` flag was computed server-side against whatever build
+  // was installed at check time. After an in-place upgrade, that cache can stay
+  // stale for up to 24h and keep showing the banner even though we're now on the
+  // latest version. Re-verify against the actually-installed build version.
+  if (!isNewer(info.latest, APP_VERSION)) return null;
 
   // Respect "dismissed for this version"
   let dismissedVersion = "";
