@@ -2,6 +2,46 @@
 
 All notable changes to **SSH Manager**.
 
+## [0.9.43] — 2026-06-22
+
+### Fix: diagnose pty exhaustion by probing /dev/ptmx, not guessing
+0.9.42 over-corrected: after dropping the unreliable device-node count it
+defaulted every ambiguous `posix_spawnp failed.` to "per-user process cap",
+which is wrong when the machine really is out of ptys. node-pty collapses pty
+exhaustion, the process cap, and a missing `ssh` binary into that one string
+(its `err` starts at `-1` and the pty-allocation early-returns never reset it),
+so the text alone can't tell them apart.
+
+The diagnosis now measures directly instead of inferring: at failure time it
+opens and immediately closes the pty master clone device (`/dev/ptmx`) — exactly
+what node-pty does first. `ENXIO`/`EAGAIN`/`EMFILE`/`ENFILE` means the kernel
+genuinely can't allocate a pty (advise freeing terminals, and rebooting since
+macOS leaks pty slave device nodes for the boot session); a clean open means
+ptys are fine, so an ambiguous failure points at the process cap with no false
+reboot advice. Verified against a live exhausted machine where `openpty()` and
+`open('/dev/ptmx')` both returned `ENXIO` with ~0 ptys actually held.
+(electron/lib/spawn-diagnostics.js)
+
+## [0.9.42] — 2026-06-22
+
+### Fix: stop the false "out of pseudo-terminals" diagnosis
+The 0.9.40 spawn diagnosis counted `/dev/ttys` device nodes to gauge pty
+pressure. On macOS those slave nodes persist for the whole boot session, so the
+count is a high-water mark, not a live figure — observed 527 nodes against a 511
+cap with almost nothing actually open. That made the message report an
+impossible "527/511 in use" and tell you to restart macOS when nothing was
+wrong. Removed the device-node heuristic so an ambiguous `posix_spawnp failed.`
+no longer claims pty exhaustion. (Superseded by the direct `/dev/ptmx` probe in
+0.9.43.) (electron/lib/spawn-diagnostics.js)
+
+### Fix: update banner no longer lingers after upgrading
+The "new version available" banner cached the check result for 24h and trusted
+the cached `available` flag, which was computed against whatever build was
+installed at check time. After an in-place upgrade within that window it kept
+showing even though you were already on the latest version. It now re-checks the
+latest release against the installed build version before rendering.
+(src/components/UpdateBanner.tsx)
+
 ## [0.9.41] — 2026-06-22
 
 ### Docs: explain (and point at the fix for) the macOS Terminal restore errors
