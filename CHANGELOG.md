@@ -2,6 +2,17 @@
 
 All notable changes to **SSH Manager**.
 
+## [0.9.44] — 2026-07-14
+
+### Fix: terminal scrollback redraw and session-tab selection
+
+- Prevent hidden built-in terminal tabs from resizing their live PTY to a
+  minimum hidden geometry, which could corrupt wrapped prompts after using
+  scrollback and Backspace.
+- Select newly opened built-in terminal tabs immediately, reselect an already
+  open session instead of duplicating it, and keep the split-layout sidebar
+  highlight in sync with the selected tab.
+
 ## [0.9.43] — 2026-06-22
 
 ### Fix: diagnose pty exhaustion by probing /dev/ptmx, not guessing
