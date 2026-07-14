@@ -282,6 +282,18 @@ export default function Terminal({ target, label, onExit, onClose }: Props) {
       ? document.fonts.ready.catch(() => undefined)
       : Promise.resolve();
 
+    // A terminal tab remains mounted while it is hidden behind another tab.
+    // FitAddon's hidden-element fallback is its minimum geometry (2x1), which
+    // would resize the live PTY and corrupt wrapped prompts when the tab is
+    // shown again. Only fit terminals that currently have real pixels.
+    const fitIfVisible = () => {
+      const container = containerRef.current;
+      if (!container) return;
+      const rect = container.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return;
+      try { fit.fit(); } catch { /* container went away */ }
+    };
+
     // Per-connection cleanups (data/exit/input handlers). Reset on each
     // reconnect — the earlyOnResize listener above lives for the whole
     // xterm lifetime and is NOT in here.
@@ -366,7 +378,7 @@ export default function Terminal({ target, label, onExit, onClose }: Props) {
 
       await fontsReady;
       if (aborted) return;
-      try { fit.fit(); } catch { /* ignore */ }
+      fitIfVisible();
 
       const disableAutoFill = !getAutoFillSetting();
       const openCall = target.kind === "session"
@@ -497,7 +509,7 @@ export default function Terminal({ target, label, onExit, onClose }: Props) {
     const ro = new ResizeObserver(() => {
       cancelAnimationFrame(raf);
       raf = requestAnimationFrame(() => {
-        try { fit.fit(); } catch { /* container went away */ }
+        fitIfVisible();
       });
     });
     ro.observe(containerRef.current);

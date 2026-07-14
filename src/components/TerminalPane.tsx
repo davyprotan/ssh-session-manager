@@ -18,6 +18,9 @@ export interface OpenTerminal {
 
 interface Props {
   terminals: OpenTerminal[];
+  /** The tab currently shown in the terminal viewport. */
+  activeKey: string | null;
+  onActiveKeyChange: (key: string | null) => void;
   onCloseTab: (key: string) => void;
   onCloseAll: () => void;
   /** When true, the pane fills its parent (split layout). When false, the
@@ -27,8 +30,7 @@ interface Props {
   emptyState?: React.ReactNode;
 }
 
-export default function TerminalPane({ terminals, onCloseTab, onCloseAll, stretched = false, emptyState }: Props) {
-  const [activeKey, setActiveKey] = useState<string | null>(terminals[0]?.key ?? null);
+export default function TerminalPane({ terminals, activeKey, onActiveKeyChange, onCloseTab, onCloseAll, stretched = false, emptyState }: Props) {
   const [collapsed, setCollapsed] = useState(false);
   // Track which keys we've already seen so we can detect "a new terminal was
   // just opened" vs "an existing one was closed".
@@ -43,20 +45,21 @@ export default function TerminalPane({ terminals, onCloseTab, onCloseAll, stretc
     prevKeysRef.current = curKeys;
 
     if (terminals.length === 0) {
-      setActiveKey(null);
+      if (activeKey !== null) onActiveKeyChange(null);
       return;
     }
     if (added.length > 0) {
       // Focus the most recently opened one. Also un-collapse so the user
       // actually sees it (otherwise the new tab opens behind the chevron).
-      setActiveKey(added[added.length - 1]);
+      const nextActiveKey = added[added.length - 1];
+      if (nextActiveKey !== activeKey) onActiveKeyChange(nextActiveKey);
       setCollapsed(false);
       return;
     }
     if (!terminals.some((t) => t.key === activeKey)) {
-      setActiveKey(terminals[terminals.length - 1].key);
+      onActiveKeyChange(terminals[terminals.length - 1].key);
     }
-  }, [terminals, activeKey]);
+  }, [terminals, activeKey, onActiveKeyChange]);
 
   // In dashboard (bottom-strip) mode, hide the whole strip when there are no
   // terminals open. In stretched mode, we want to render the empty state so
@@ -77,7 +80,7 @@ export default function TerminalPane({ terminals, onCloseTab, onCloseAll, stretc
           </div>
         ) : (
           <>
-            <TabStrip terminals={terminals} activeKey={activeKey} setActiveKey={setActiveKey} onCloseTab={onCloseTab} onCloseAll={onCloseAll} />
+            <TabStrip terminals={terminals} activeKey={activeKey} setActiveKey={onActiveKeyChange} onCloseTab={onCloseTab} onCloseAll={onCloseAll} />
             <div className="flex-1 min-h-0 relative">
               {terminals.map((t) => (
                 <div
@@ -113,7 +116,7 @@ export default function TerminalPane({ terminals, onCloseTab, onCloseAll, stretc
       <TabStrip
         terminals={terminals}
         activeKey={activeKey}
-        setActiveKey={(k) => { setActiveKey(k); setCollapsed(false); }}
+        setActiveKey={(k) => { onActiveKeyChange(k); setCollapsed(false); }}
         onCloseTab={onCloseTab}
         onCloseAll={onCloseAll}
         collapsible
