@@ -80,6 +80,7 @@ export default function Home() {
 
   // Built-in terminals — stack of open ssh sessions rendered in TerminalPane.
   const [openTerminals, setOpenTerminals] = useState<OpenTerminal[]>([]);
+  const [activeTerminalKey, setActiveTerminalKey] = useState<string | null>(null);
   const hasBuiltInTerminal = typeof window !== "undefined" && !!window.sshTerm;
 
   // Layout: "dashboard" (current — full-width sessions, terminal pane below)
@@ -126,17 +127,21 @@ export default function Home() {
       toast.error("Built-in terminal requires the desktop app");
       return;
     }
-    setOpenTerminals((prev) => {
-      // If the same saved session is already open, refocus rather than dup.
-      const existing = prev.find((t) => t.target.kind === "session" && t.target.sessionId === s.id);
-      if (existing) return prev;
-      return [...prev, {
-        key: `t${Date.now()}-${s.id}`,
-        target: { kind: "session", sessionId: s.id },
-        label: s.name,
-      }];
-    });
-  }, [hasBuiltInTerminal]);
+    // If the same saved session is already open, select it instead of adding
+    // a duplicate tab. New tabs are selected immediately as well.
+    const existing = openTerminals.find((t) => t.target.kind === "session" && t.target.sessionId === s.id);
+    if (existing) {
+      setActiveTerminalKey(existing.key);
+      return;
+    }
+    const terminal: OpenTerminal = {
+      key: `t${Date.now()}-${s.id}`,
+      target: { kind: "session", sessionId: s.id },
+      label: s.name,
+    };
+    setActiveTerminalKey(terminal.key);
+    setOpenTerminals((prev) => [...prev, terminal]);
+  }, [hasBuiltInTerminal, openTerminals]);
 
   const openAdHocTerminal = useCallback((opts: {
     host: string; profileId: number; port?: number; jumpHost?: string; label?: string;
@@ -145,7 +150,7 @@ export default function Home() {
       toast.error("Built-in terminal requires the desktop app");
       return;
     }
-    setOpenTerminals((prev) => [...prev, {
+    const terminal: OpenTerminal = {
       key: `t${Date.now()}-${opts.host}`,
       target: {
         kind: "ad-hoc",
@@ -155,14 +160,19 @@ export default function Home() {
         jumpHost: opts.jumpHost,
       },
       label: opts.label || opts.host,
-    }]);
+    };
+    setActiveTerminalKey(terminal.key);
+    setOpenTerminals((prev) => [...prev, terminal]);
   }, [hasBuiltInTerminal]);
 
   const closeTerminal = useCallback((key: string) => {
     setOpenTerminals((prev) => prev.filter((t) => t.key !== key));
   }, []);
 
-  const closeAllTerminals = useCallback(() => setOpenTerminals([]), []);
+  const closeAllTerminals = useCallback(() => {
+    setOpenTerminals([]);
+    setActiveTerminalKey(null);
+  }, []);
 
   const fetchSessions = useCallback(async () => {
     const res = await fetch("/api/sessions");
@@ -294,6 +304,9 @@ export default function Home() {
     if (s.profile_id) acc[s.profile_id] = (acc[s.profile_id] || 0) + 1;
     return acc;
   }, {});
+
+  const activeTerminal = openTerminals.find((t) => t.key === activeTerminalKey);
+  const activeSessionId = activeTerminal?.target.kind === "session" ? activeTerminal.target.sessionId : null;
 
   function openNewSession() { setEditingSession(null); setSessionDialogOpen(true); }
   function openNewProfile() { setEditingProfile(null); setProfileDialogOpen(true); }
@@ -429,9 +442,7 @@ export default function Home() {
             sessions={sessions}
             profiles={profiles}
             history={history}
-            activeSessionId={openTerminals[openTerminals.length - 1]?.target.kind === "session"
-              ? (openTerminals[openTerminals.length - 1].target as { kind: "session"; sessionId: number }).sessionId
-              : null}
+            activeSessionId={activeSessionId}
             width={sidebarWidth}
             collapsed={sidebarCollapsed}
             onWidthChange={setSidebarWidthPersisted}
@@ -617,6 +628,8 @@ export default function Home() {
           {hasBuiltInTerminal && (
             <TerminalPane
               terminals={openTerminals}
+              activeKey={activeTerminalKey}
+              onActiveKeyChange={setActiveTerminalKey}
               onCloseTab={closeTerminal}
               onCloseAll={closeAllTerminals}
               stretched={layout === "split"}
