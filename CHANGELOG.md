@@ -2,6 +2,15 @@
 
 All notable changes to **SSH Manager**.
 
+## [0.9.47] — 2026-07-26
+
+### Fix: Windows release build
+
+- Remove the unused Next.js tracing overrides entirely. The remaining
+  `Application Data` exclusion glob still caused Next.js to scan that protected
+  Windows junction during compilation; Electron packages the required runtime
+  dependencies independently, so custom trace globs are unnecessary.
+
 ## [0.9.46] — 2026-07-26
 
 ### Fix: Windows release build

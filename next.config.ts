@@ -39,17 +39,6 @@ const nextConfig: NextConfig = {
   serverExternalPackages: ["keytar", "better-sqlite3"],
   // Electron loads the app from 127.0.0.1; allow it as a dev origin
   allowedDevOrigins: ["127.0.0.1", "localhost"],
-  // Electron ships node_modules wholesale via electron-builder. Keep trace exclusions
-  // relative to this repository: Next expands absolute C:\Users globs during a build,
-  // which enters Windows' inaccessible Application Data junction before it can exclude it.
-  outputFileTracingRoot: process.cwd(),
-  outputFileTracingExcludes: {
-    "*": [
-      "**/Application Data/**",
-      "**/Local Settings/**",
-      "**/AppData/Local/Temp/**",
-    ],
-  },
   async headers() {
     return [
       { source: "/:path*", headers: SECURITY_HEADERS },
