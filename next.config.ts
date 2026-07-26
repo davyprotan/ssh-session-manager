@@ -39,17 +39,15 @@ const nextConfig: NextConfig = {
   serverExternalPackages: ["keytar", "better-sqlite3"],
   // Electron loads the app from 127.0.0.1; allow it as a dev origin
   allowedDevOrigins: ["127.0.0.1", "localhost"],
-  // Disable output file tracing — we ship node_modules wholesale via electron-builder's
-  // extraResources, so Next's tracing pass is wasted work and breaks on Windows runners
-  // (junction points like C:\Users\<u>\Application Data throw EPERM during scan).
+  // Electron ships node_modules wholesale via electron-builder. Keep trace exclusions
+  // relative to this repository: Next expands absolute C:\Users globs during a build,
+  // which enters Windows' inaccessible Application Data junction before it can exclude it.
   outputFileTracingRoot: process.cwd(),
   outputFileTracingExcludes: {
     "*": [
       "**/Application Data/**",
       "**/Local Settings/**",
       "**/AppData/Local/Temp/**",
-      "C:\\Users\\*\\Application Data\\**",
-      "C:\\Users\\*\\Local Settings\\**",
     ],
   },
   async headers() {
