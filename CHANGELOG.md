@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.9.48] — 2026-07-26
+
+### Fix: Windows release build
+
+- Run Next.js tracing with a temporary build-only Windows profile so it cannot
+  scan the protected legacy `Application Data` junction. The packaged app keeps
+  using the user's real profile at runtime.
+
 All notable changes to **SSH Manager**.
 
 ## [0.9.47] — 2026-07-26
