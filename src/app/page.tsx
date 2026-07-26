@@ -644,6 +644,11 @@ export default function Home() {
         onSave={(saved, isNew) => {
           fetchSessions();
           fetchHistory();
+          // A newly created saved session is also a new terminal session:
+          // open it through the shared helper so its tab becomes active.
+          if (isNew && saved) {
+            openInBuiltInTerminal({ id: saved.id, name: saved.name });
+          }
           // Auto-offer passwordless setup for any new password-auth session
           if (isNew && saved && saved.profile_auth_type === "password") {
             // Small delay so the SessionDialog finishes its close animation first
