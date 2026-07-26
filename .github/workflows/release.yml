@@ -40,8 +40,19 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build Next.js
+      - name: Build Next.js (macOS)
+        if: matrix.target == 'mac'
         run: npm run build
+
+      - name: Build Next.js (Windows)
+        if: matrix.target == 'win'
+        shell: pwsh
+        env:
+          HOME: ${{ runner.temp }}/ssh-manager-build-home
+          USERPROFILE: ${{ runner.temp }}/ssh-manager-build-home
+        run: |
+          New-Item -ItemType Directory -Force -Path $env:USERPROFILE | Out-Null
+          npm run build
 
       - name: Build Electron app (macOS)
         if: matrix.target == 'mac'
