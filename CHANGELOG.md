@@ -2,6 +2,14 @@
 
 All notable changes to **SSH Manager**.
 
+## [0.9.45] — 2026-07-26
+
+### Fix: newly saved sessions open as the active terminal
+
+- Creating a saved SSH session now immediately opens that session in the
+  built-in terminal and selects its tab, rather than only refreshing the
+  session list.
+
 ## [0.9.44] — 2026-07-14
 
 ### Fix: terminal scrollback redraw and session-tab selection
