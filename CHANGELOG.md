@@ -2,6 +2,14 @@
 
 All notable changes to **SSH Manager**.
 
+## [0.9.46] — 2026-07-26
+
+### Fix: Windows release build
+
+- Remove absolute Windows junction paths from Next.js trace exclusions. Next
+  expanded those paths during the build and failed while scanning the protected
+  `Application Data` junction before the exclusion could take effect.
+
 ## [0.9.45] — 2026-07-26
 
 ### Fix: newly saved sessions open as the active terminal
