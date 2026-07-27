@@ -69,6 +69,10 @@ interface Props {
   target: TerminalTarget;
   /** Display label for the header. */
   label: string;
+  /** Whether this terminal is the visible tab. Active terminals take keyboard focus. */
+  isActive: boolean;
+  /** Changes whenever the parent explicitly requests focus for this terminal. */
+  focusRequest: number;
   /** Called when the terminal exits (for parent to clean up tab/pane). */
   onExit?: (info: { exitCode: number; signal: number | null }) => void;
   /** Called when the user closes the pane (e.g. clicking X). */
@@ -114,7 +118,7 @@ function tailMatchesLegacyAlgoFailure(tail: string): boolean {
   return LEGACY_ALGO_PATTERNS.some((re) => re.test(tail));
 }
 
-export default function Terminal({ target, label, onExit, onClose }: Props) {
+export default function Terminal({ target, label, isActive, focusRequest, onExit, onClose }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<XTerm | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
@@ -548,6 +552,34 @@ export default function Terminal({ target, label, onExit, onClose }: Props) {
     target.kind,
     target.kind === "session" ? target.sessionId : `${target.host}:${target.port ?? 22}@${target.profileId}`,
   ]);
+
+  // Selecting a tab only changes which terminal is displayed; it does not
+  // move browser focus into xterm's hidden textarea. Wait for two paints so
+  // focus restoration from a closing dropdown/menu has completed, then focus
+  // xterm. focusRequest deliberately retriggers this for an already-active tab.
+  useEffect(() => {
+    if (!isActive) return;
+
+    let focusFrame = 0;
+    const paintFrame = requestAnimationFrame(() => {
+      focusFrame = requestAnimationFrame(() => {
+        const container = containerRef.current;
+        const term = xtermRef.current;
+        if (!container || !term) return;
+
+        const rect = container.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0) return;
+
+        try { fitRef.current?.fit(); } catch { /* layout may still be settling */ }
+        try { term.focus(); } catch { /* terminal may have been disposed */ }
+      });
+    });
+
+    return () => {
+      cancelAnimationFrame(paintFrame);
+      cancelAnimationFrame(focusFrame);
+    };
+  }, [isActive, focusRequest]);
 
   async function enableCompatLegacyAndRetry(profileId: number) {
     setLegacyApplying(true);
