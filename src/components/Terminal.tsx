@@ -58,7 +58,10 @@ interface SavedSessionTarget {
 interface AdHocTarget {
   kind: "ad-hoc";
   host: string;
-  profileId: number;
+  /** null = manual connect: no profile, ssh prompts for credentials. */
+  profileId: number | null;
+  /** Manual connect only: login name (blank = ssh's default). */
+  username?: string;
   port?: number;
   jumpHost?: string;
 }
@@ -390,6 +393,7 @@ export default function Terminal({ target, label, isActive, focusRequest, onExit
         : bridge.openAdHoc({
             host: target.host,
             profileId: target.profileId,
+            username: target.username,
             port: target.port,
             jumpHost: target.jumpHost,
             label,
@@ -550,7 +554,7 @@ export default function Terminal({ target, label, isActive, focusRequest, onExit
   }, [
     // Identity key — change in any of these means "different connection".
     target.kind,
-    target.kind === "session" ? target.sessionId : `${target.host}:${target.port ?? 22}@${target.profileId}`,
+    target.kind === "session" ? target.sessionId : `${target.username ?? ""}@${target.host}:${target.port ?? 22}#${target.profileId ?? "manual"}`,
   ]);
 
   // Selecting a tab only changes which terminal is displayed; it does not

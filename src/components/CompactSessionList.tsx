@@ -117,7 +117,7 @@ export default function CompactSessionList(props: Props) {
         <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={onToggleCollapsed} title="Show sidebar" style={{ color: "var(--muted-fg)" }}>
           <ChevronRight className="h-3.5 w-3.5" />
         </Button>
-        <Button size="sm" variant="ghost" className="h-7 w-7 p-0 mt-1" onClick={onQuickConnect} title="Quick connect" style={{ color: "var(--accent)" }}>
+        <Button size="sm" variant="ghost" className="h-7 w-7 p-0 mt-1" onClick={onQuickConnect} title="New tab — connect to a host" style={{ color: "var(--accent)" }}>
           <Zap className="h-3.5 w-3.5" />
         </Button>
         <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={onNewSession} title="New session" style={{ color: "var(--muted-fg)" }}>
@@ -154,7 +154,7 @@ export default function CompactSessionList(props: Props) {
         </h2>
         {tab === "saved" && (
           <>
-            <Button size="sm" variant="ghost" onClick={onQuickConnect} className="h-7 w-7 p-0" title="Quick connect" style={{ color: "var(--accent)" }}>
+            <Button size="sm" variant="ghost" onClick={onQuickConnect} className="h-7 w-7 p-0" title="New tab — connect to a host" style={{ color: "var(--accent)" }}>
               <Zap className="h-3.5 w-3.5" />
             </Button>
             <Button size="sm" variant="ghost" onClick={onNewSession} className="h-7 w-7 p-0" title="New session" style={{ color: "var(--muted-fg)" }}>

@@ -21,6 +21,8 @@ import WelcomeDialog from "@/components/WelcomeDialog";
 import dynamic from "next/dynamic";
 import type { OpenTerminal } from "@/components/TerminalPane";
 import CompactSessionList from "@/components/CompactSessionList";
+import HostLauncher, { type LaunchRequest } from "@/components/HostLauncher";
+import HeaderHostBar from "@/components/HeaderHostBar";
 
 // xterm.js touches `self` at module-load. Skip SSR so the build doesn't
 // trip on the prerender pass.
@@ -52,6 +54,9 @@ export default function Home() {
 
   const [sessionDialogOpen, setSessionDialogOpen] = useState(false);
   const [editingSession, setEditingSession] = useState<Session | null>(null);
+  // Host/port to pre-fill when the session dialog opens in create mode
+  // (from the terminal launcher's "More options…").
+  const [sessionPrefill, setSessionPrefill] = useState<{ host: string; port?: number } | null>(null);
   const [profileDialogOpen, setProfileDialogOpen] = useState(false);
   const [editingProfile, setEditingProfile] = useState<Profile | null>(null);
   const [quickConnectOpen, setQuickConnectOpen] = useState(false);
@@ -86,6 +91,26 @@ export default function Home() {
   // reclaim focus from the session card or closing dropdown menu.
   const [terminalFocusRequest, setTerminalFocusRequest] = useState(0);
   const hasBuiltInTerminal = typeof window !== "undefined" && !!window.sshTerm;
+  // Bumped to focus the header host field (⌘T, sidebar ⚡).
+  const [hostBarFocus, setHostBarFocus] = useState(0);
+  const openNewTab = useCallback(() => setHostBarFocus((n) => n + 1), []);
+
+  // ⌘T (macOS) / Ctrl+Shift+T opens a new tab. Capture phase so it wins over
+  // xterm, which would otherwise send the keystroke to the remote shell.
+  useEffect(() => {
+    if (!hasBuiltInTerminal) return;
+    const isMac = /Mac/i.test(navigator.platform);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key.toLowerCase() !== "t" || e.altKey) return;
+      const hit = isMac ? (e.metaKey && !e.ctrlKey && !e.shiftKey) : (e.ctrlKey && e.shiftKey && !e.metaKey);
+      if (!hit) return;
+      e.preventDefault();
+      e.stopPropagation();
+      openNewTab();
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [hasBuiltInTerminal, openNewTab]);
 
   // Layout: "dashboard" (current — full-width sessions, terminal pane below)
   // or "split" (compact session sidebar on the left, terminal fills the rest).
@@ -150,7 +175,7 @@ export default function Home() {
   }, [hasBuiltInTerminal, openTerminals]);
 
   const openAdHocTerminal = useCallback((opts: {
-    host: string; profileId: number; port?: number; jumpHost?: string; label?: string;
+    host: string; profileId: number | null; username?: string; port?: number; jumpHost?: string; label?: string;
   }) => {
     if (!hasBuiltInTerminal) {
       toast.error("Built-in terminal requires the desktop app");
@@ -162,10 +187,11 @@ export default function Home() {
         kind: "ad-hoc",
         host: opts.host,
         profileId: opts.profileId,
+        username: opts.username,
         port: opts.port,
         jumpHost: opts.jumpHost,
       },
-      label: opts.label || opts.host,
+      label: opts.label || (opts.username ? `${opts.username}@${opts.host}` : opts.host),
     };
     setActiveTerminalKey(terminal.key);
     setOpenTerminals((prev) => [...prev, terminal]);
@@ -315,7 +341,51 @@ export default function Home() {
   const activeTerminal = openTerminals.find((t) => t.key === activeTerminalKey);
   const activeSessionId = activeTerminal?.target.kind === "session" ? activeTerminal.target.sessionId : null;
 
-  function openNewSession() { setEditingSession(null); setSessionDialogOpen(true); }
+  function openNewSession() { setEditingSession(null); setSessionPrefill(null); setSessionDialogOpen(true); }
+
+  // Launcher "Save & connect": create the saved session, then open it in a
+  // tab. Returns false (and toasts) on failure so the launcher keeps the input.
+  async function launcherSaveAndConnect(req: LaunchRequest): Promise<boolean> {
+    if (req.profileId == null) return false; // manual connects aren't saved
+    const profile = profiles.find((p) => p.id === req.profileId);
+    const res = await fetch("/api/sessions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: req.host,
+        host: req.host,
+        port: req.port ?? profile?.port ?? 22,
+        profile_id: req.profileId,
+        tags: [],
+      }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      toast.error("Failed to save session", { description: err.error });
+      return false;
+    }
+    const saved: Session = await res.json();
+    toast.success(`Saved session "${saved.name}"`);
+    fetchSessions();
+    openInBuiltInTerminal({ id: saved.id, name: saved.name });
+    if (saved.profile_auth_type === "password") {
+      setTimeout(() => setPasswordlessTarget(saved), 200);
+    }
+    return true;
+  }
+
+  const renderLauncher = (focusRequest: number) => (
+    <HostLauncher
+      profiles={profiles}
+      sessions={sessions}
+      history={history}
+      focusRequest={focusRequest}
+      onQuickConnect={(req) => openAdHocTerminal({ host: req.host, port: req.port, profileId: req.profileId, username: req.username })}
+      onSaveAndConnect={launcherSaveAndConnect}
+      onMoreOptions={(prefill) => { setEditingSession(null); setSessionPrefill(prefill); setSessionDialogOpen(true); }}
+      onNewProfile={openNewProfile}
+    />
+  );
   function openNewProfile() { setEditingProfile(null); setProfileDialogOpen(true); }
 
   function refreshAll() { fetchSessions(); fetchProfiles(); fetchFolders(); fetchHistory(); }
@@ -327,11 +397,14 @@ export default function Home() {
       {/* Header: outer element is the title-bar drag region (drag + double-
           click to zoom). The inner content wrapper carries .app-no-drag, which
           (per the CSS rule in globals.css) makes everything inside it
-          non-draggable so all buttons / inputs / clicks behave normally. The
-          internal flex-1 spacer between nav and search re-asserts drag so the
-          centered area is also draggable. */}
+          non-draggable so all buttons / inputs / clicks behave normally — a
+          fully draggable header broke tab clicks in v0.9.4. The wrapper spans
+          the full width, so the strip around the window buttons and the flex-1
+          spacer re-assert drag; keep both, or double-click-to-zoom has nowhere
+          to land. */}
       <header className="app-drag-region sticky top-0 z-20 border-b" style={{ borderColor: "var(--border)", background: "color-mix(in srgb, var(--background) 85%, transparent)", backdropFilter: "blur(12px)" }}>
-        <div className="app-no-drag max-w-5xl mx-auto px-5 h-14 flex items-center gap-3">
+        <div className="app-no-drag w-full pr-5 h-14 flex items-center gap-3 max-[800px]:gap-1.5 max-[800px]:pr-3">
+          <div className="app-drag-region self-stretch shrink-0 w-[84px] max-[800px]:w-[90px]" />
           <button
             onClick={() => { setTab("saved"); setSearch(""); }}
             className="flex items-center gap-2.5 shrink-0 mr-2 rounded-lg px-1 -mx-1 py-1 -my-1 transition-colors hover:bg-accent/40"
@@ -340,7 +413,7 @@ export default function Home() {
             <div className="relative flex h-8 w-8 items-center justify-center rounded-xl" style={{ background: "linear-gradient(135deg, color-mix(in srgb, var(--accent) 25%, transparent), color-mix(in srgb, var(--accent) 8%, transparent))", border: "1px solid color-mix(in srgb, var(--accent) 30%, transparent)" }}>
               <Terminal className="h-4 w-4" style={{ color: "var(--accent)" }} />
             </div>
-            <span className="font-semibold text-sm" style={{ color: "var(--foreground)" }}>SSH Manager</span>
+            <span className={`font-semibold text-sm ${layout === "dashboard" ? "max-[1400px]:hidden" : "max-[1100px]:hidden"}`} style={{ color: "var(--foreground)" }}>SSH Manager</span>
           </button>
 
           {/* Tabs work in both layouts:
@@ -362,10 +435,10 @@ export default function Home() {
               draggable / double-click-to-zoom region. Putting drag-region on
               the whole header risked breaking button clicks; this slice is
               guaranteed to never contain interactive elements. */}
-          <div className="flex-1 self-stretch app-drag-region" />
+          <div className="flex-1 min-w-12 max-[800px]:min-w-2 self-stretch app-drag-region" />
 
           {layout === "dashboard" && (
-            <div className="relative w-48">
+            <div className="relative w-48 shrink min-w-[72px]">
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 pointer-events-none" style={{ color: "var(--muted-fg)" }} />
               <Input
                 className="pl-8 h-8 text-sm"
@@ -412,27 +485,40 @@ export default function Home() {
 
           <ThemePicker />
 
-          <Button
-            size="sm"
-            variant="outline"
-            className="h-8 gap-1.5 text-sm font-medium"
-            style={{ borderColor: "color-mix(in srgb, var(--accent) 40%, transparent)", color: "var(--accent)", background: "color-mix(in srgb, var(--accent) 5%, transparent)" }}
-            onClick={() => setQuickConnectOpen(true)}
-            title="Connect to a host without saving it"
-          >
-            <Zap className="h-3.5 w-3.5" />
-            Quick connect
-          </Button>
+          {hasBuiltInTerminal ? (
+            <HeaderHostBar
+              profiles={profiles}
+              sessions={sessions}
+              focusRequest={hostBarFocus}
+              onQuickConnect={(req) => openAdHocTerminal({ host: req.host, port: req.port, profileId: req.profileId, username: req.username })}
+              onSaveAndConnect={launcherSaveAndConnect}
+              onMoreOptions={(prefill) => { setEditingSession(null); setSessionPrefill(prefill); setSessionDialogOpen(true); }}
+              onNewProfile={openNewProfile}
+            />
+          ) : (
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-8 gap-1.5 text-sm font-medium"
+              style={{ borderColor: "color-mix(in srgb, var(--accent) 40%, transparent)", color: "var(--accent)", background: "color-mix(in srgb, var(--accent) 5%, transparent)" }}
+              onClick={() => setQuickConnectOpen(true)}
+              title="Connect to a host without saving it"
+            >
+              <Zap className="h-3.5 w-3.5" />
+              Quick connect
+            </Button>
+          )}
 
           <Button
             size="sm"
-            className="h-8 gap-1.5 text-sm font-medium"
+            className="h-8 gap-1.5 text-sm font-medium shrink-0"
+            aria-label={layout === "dashboard" && tab === "profiles" ? "New profile" : "New session"}
             style={{ background: "var(--accent)", color: "var(--accent-foreground)", border: "none" }}
             // In split layout the tab nav is hidden — always default to "new session".
             onClick={layout === "dashboard" && tab === "profiles" ? openNewProfile : openNewSession}
           >
             <Plus className="h-3.5 w-3.5" />
-            {layout === "dashboard" && tab === "profiles" ? "New profile" : "New session"}
+            <span className="max-[900px]:hidden">{layout === "dashboard" && tab === "profiles" ? "New profile" : "New session"}</span>
           </Button>
         </div>
       </header>
@@ -456,7 +542,7 @@ export default function Home() {
             onToggleCollapsed={toggleSidebarCollapsed}
             onOpenSession={(s) => openInBuiltInTerminal({ id: s.id, name: s.name })}
             onNewSession={openNewSession}
-            onQuickConnect={() => setQuickConnectOpen(true)}
+            onQuickConnect={openNewTab}
             onConnectFromHistory={(h) => {
               if (h.session_id) {
                 const matching = sessions.find(s => s.id === h.session_id);
@@ -641,6 +727,7 @@ export default function Home() {
               onCloseTab={closeTerminal}
               onCloseAll={closeAllTerminals}
               stretched={layout === "split"}
+              renderLauncher={renderLauncher}
             />
           )}
         </div>{/* /main column */}
@@ -664,6 +751,7 @@ export default function Home() {
           }
         }}
         session={editingSession}
+        prefill={sessionPrefill}
         profiles={profiles}
         folders={folders}
         allSessions={sessions}
@@ -790,17 +878,19 @@ function TabButton({ active, onClick, icon, count, children }: {
   return (
     <button
       onClick={onClick}
-      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all duration-150"
+      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all duration-150 shrink-0 max-[1000px]:px-2"
+      title={typeof children === "string" ? children : undefined}
+      aria-label={typeof children === "string" ? children : undefined}
       style={active
         ? { color: "var(--accent)", background: "color-mix(in srgb, var(--accent) 10%, transparent)" }
         : { color: "var(--muted-fg)", background: "transparent" }
       }
     >
       {icon}
-      {children}
+      <span className="max-[1000px]:hidden">{children}</span>
       {count > 0 && (
         <span
-          className="text-xs tabular-nums rounded-full px-1.5 min-w-5 text-center leading-5"
+          className="text-xs tabular-nums rounded-full px-1.5 min-w-5 text-center leading-5 max-[800px]:hidden"
           style={active
             ? { background: "color-mix(in srgb, var(--accent) 15%, transparent)", color: "var(--accent)" }
             : { background: "var(--muted)", color: "var(--muted-fg)" }
