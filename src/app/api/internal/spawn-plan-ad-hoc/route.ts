@@ -1,7 +1,9 @@
 // Internal-only endpoint for the built-in terminal's "Quick Connect" path
 // where there's no saved session yet. Takes host + profile_id + optional
 // port/jump_host (same body as /api/connect), validates via buildSshArgs,
-// and returns the argv. The renderer never has the internal token, so this
+// and returns the argv. With no profile_id it is a manual connect: plain
+// `ssh [user@]host` with the optional `username`, so ssh prompts for
+// credentials in the terminal and nothing is auto-filled. The renderer never has the internal token, so this
 // route is unreachable from the browser.
 
 import { NextRequest, NextResponse } from "next/server";
@@ -37,6 +39,29 @@ export async function POST(req: NextRequest) {
   const jumpHost = typeof body.jump_host === "string" ? body.jump_host : "";
 
   if (!host) return NextResponse.json({ error: "host required" }, { status: 400 });
+
+  const manual = body.profile_id === undefined || body.profile_id === null;
+  if (manual) {
+    const username = typeof body.username === "string" ? body.username : "";
+    const result = buildSshArgs({
+      host,
+      port: Number.isFinite(requestedPort) && requestedPort > 0 ? requestedPort : 22,
+      username,
+      jumpHost,
+      authType: "",
+    });
+    if (!result.ok) {
+      return NextResponse.json({ error: `refused: ${result.error}` }, { status: 400 });
+    }
+    return NextResponse.json({
+      argv: result.argv,
+      display: result.display,
+      sessionLabel: host,
+      sessionId: null,
+      profileId: null,
+      profileAuthType: null,
+    });
+  }
   if (!Number.isInteger(profileId) || profileId <= 0) {
     return NextResponse.json({ error: "valid profile_id required" }, { status: 400 });
   }

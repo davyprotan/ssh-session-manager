@@ -13,7 +13,8 @@ When you click Connect, it opens iTerm2 (or Terminal.app as fallback) with the r
 - **Credential profiles** — username + SSH key (or password). Reuse across many sessions. One can be marked as default
 - **Color tags** on profiles (cyan / green / amber / purple / pink / rose) — surface the same color on session cards that use them
 - **Visual profile picker** — when creating a session, profiles appear as cards (not a dropdown). Inline "+ New profile" — no need to switch tabs
-- **Quick Connect** — host + profile picker → connect, no need to save the session
+- **Quick Connect** — type a host in the header field (⌘T / Ctrl+Shift+T) and pick how to connect, with no dialog first. Accepts `host`, `host:port` and `user@host`. Also on the empty-tab launcher
+- **Connect without a profile** — choose **Enter credentials** and ssh asks for the password in the terminal; nothing is saved or auto-filled
 - **Folders** for organizing sessions, with optional color
 - **Jump host (ProxyJump)** support per session
 - **Per-profile SSH options** — agent forwarding `-A`, compression `-C`, keepalive interval, plus extra `-o Key=Value` flags (allowlisted)

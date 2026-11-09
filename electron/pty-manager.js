@@ -117,9 +117,9 @@ function internalPost(pathname, body) {
   });
 }
 
-function fetchAdHocSpawnPlan({ host, profileId, port, jumpHost }) {
+function fetchAdHocSpawnPlan({ host, profileId, port, jumpHost, username }) {
   return internalPost('/api/internal/spawn-plan-ad-hoc', {
-    host, profile_id: profileId, port, jump_host: jumpHost,
+    host, profile_id: profileId ?? null, port, jump_host: jumpHost, username,
   });
 }
 
@@ -421,10 +421,13 @@ function register(config) {
     }
 
     const host = typeof payload?.host === 'string' ? payload.host.trim() : '';
-    const profileId = Number(payload?.profileId);
-    if (!host || !Number.isInteger(profileId) || profileId <= 0) {
-      return { ok: false, error: 'host and profileId required' };
+    // profileId null/absent = manual connect (ssh prompts for credentials).
+    const manual = payload?.profileId === undefined || payload?.profileId === null;
+    const profileId = manual ? null : Number(payload.profileId);
+    if (!host || (!manual && (!Number.isInteger(profileId) || profileId <= 0))) {
+      return { ok: false, error: 'host and a valid profileId required' };
     }
+    const username = manual && typeof payload?.username === 'string' ? payload.username.trim() : undefined;
 
     let plan;
     try {
@@ -433,6 +436,7 @@ function register(config) {
         profileId,
         port: Number.isFinite(Number(payload?.port)) ? Number(payload.port) : undefined,
         jumpHost: typeof payload?.jumpHost === 'string' ? payload.jumpHost : undefined,
+        username,
       });
       // Override the label if the caller supplied one (typically the host).
       if (typeof payload?.label === 'string' && payload.label.trim()) {

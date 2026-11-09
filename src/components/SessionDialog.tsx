@@ -22,6 +22,8 @@ interface Props {
   // to e.g. auto-open the passwordless setup for new password-auth sessions.
   onSave: (saved?: Session, isNew?: boolean) => void;
   session?: Session | null;
+  /** Create mode only: host/port to start with. */
+  prefill?: { host: string; port?: number } | null;
   profiles: Profile[];
   folders: Folder[];
   /** All other saved sessions — used to suggest a profile based on hostname pattern. */
@@ -30,7 +32,7 @@ interface Props {
   onFoldersChanged: () => void;
 }
 
-export default function SessionDialog({ open, onClose, onSave, session, profiles, folders, allSessions = [], onProfilesChanged, onFoldersChanged }: Props) {
+export default function SessionDialog({ open, onClose, onSave, session, prefill, profiles, folders, allSessions = [], onProfilesChanged, onFoldersChanged }: Props) {
   const [name, setName] = useState("");
   const [host, setHost] = useState("");
   const [port, setPort] = useState("22");
@@ -62,9 +64,9 @@ export default function SessionDialog({ open, onClose, onSave, session, profiles
       setNotes(session.notes || "");
       setTags(JSON.parse(session.tags || "[]"));
     } else {
-      setName("");
-      setHost("");
-      setPort("22");
+      setName(prefill?.host ?? "");
+      setHost(prefill?.host ?? "");
+      setPort(String(prefill?.port ?? 22));
       const defaultProfile = profiles.find(p => p.is_default) || profiles[0];
       setProfileId(defaultProfile?.id ?? null);
       setFolderId("");
@@ -77,7 +79,7 @@ export default function SessionDialog({ open, onClose, onSave, session, profiles
     setSuggestion(null);
     setNewFolderInput(false);
     setNewFolderName("");
-  }, [session, open, profiles]);
+  }, [session, prefill, open, profiles]);
 
   // Whenever the host changes (in CREATE mode only and before the user has
   // overridden), recompute the suggested profile from existing sessions and

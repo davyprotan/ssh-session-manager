@@ -40,10 +40,12 @@ export interface SshTermBridge {
      *  for this session even if the global setting allows it. */
     disableAutoFill?: boolean;
   }): Promise<OpenResult>;
-  /** Open an ad-hoc connection (Quick Connect): host + profile, no saved session. */
+  /** Open an ad-hoc connection (Quick Connect): host + profile, no saved
+   *  session. profileId null = manual connect, ssh prompts for credentials. */
   openAdHoc(opts: {
     host: string;
-    profileId: number;
+    profileId: number | null;
+    username?: string;
     port?: number;
     jumpHost?: string;
     label?: string;
