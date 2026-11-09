@@ -20,6 +20,8 @@ interface Props {
   terminals: OpenTerminal[];
   /** The tab currently shown in the terminal viewport. */
   activeKey: string | null;
+  /** Changes whenever an explicit open/select action should reveal and focus the active terminal. */
+  focusRequest: number;
   onActiveKeyChange: (key: string | null) => void;
   onCloseTab: (key: string) => void;
   onCloseAll: () => void;
@@ -30,7 +32,7 @@ interface Props {
   emptyState?: React.ReactNode;
 }
 
-export default function TerminalPane({ terminals, activeKey, onActiveKeyChange, onCloseTab, onCloseAll, stretched = false, emptyState }: Props) {
+export default function TerminalPane({ terminals, activeKey, focusRequest, onActiveKeyChange, onCloseTab, onCloseAll, stretched = false, emptyState }: Props) {
   const [collapsed, setCollapsed] = useState(false);
   // Track which keys we've already seen so we can detect "a new terminal was
   // just opened" vs "an existing one was closed".
@@ -60,6 +62,17 @@ export default function TerminalPane({ terminals, activeKey, onActiveKeyChange, 
       onActiveKeyChange(terminals[terminals.length - 1].key);
     }
   }, [terminals, activeKey, onActiveKeyChange]);
+
+  // An explicit open request must reveal the pane even if it targets a tab
+  // that was already open/active while the dashboard terminal was collapsed.
+  useEffect(() => {
+    if (focusRequest <= 0 || terminals.length === 0) return;
+    let cancelled = false;
+    void Promise.resolve().then(() => {
+      if (!cancelled) setCollapsed(false);
+    });
+    return () => { cancelled = true; };
+  }, [focusRequest, terminals.length]);
 
   // In dashboard (bottom-strip) mode, hide the whole strip when there are no
   // terminals open. In stretched mode, we want to render the empty state so
@@ -91,6 +104,8 @@ export default function TerminalPane({ terminals, activeKey, onActiveKeyChange, 
                   <Terminal
                     target={t.target}
                     label={t.label}
+                    isActive={t.key === activeKey}
+                    focusRequest={t.key === activeKey ? focusRequest : 0}
                     onClose={() => onCloseTab(t.key)}
                   />
                 </div>
@@ -135,6 +150,8 @@ export default function TerminalPane({ terminals, activeKey, onActiveKeyChange, 
               <Terminal
                 target={t.target}
                 label={t.label}
+                isActive={t.key === activeKey}
+                focusRequest={t.key === activeKey ? focusRequest : 0}
                 onClose={() => onCloseTab(t.key)}
               />
             </div>

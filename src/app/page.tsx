@@ -81,6 +81,10 @@ export default function Home() {
   // Built-in terminals — stack of open ssh sessions rendered in TerminalPane.
   const [openTerminals, setOpenTerminals] = useState<OpenTerminal[]>([]);
   const [activeTerminalKey, setActiveTerminalKey] = useState<string | null>(null);
+  // Incremented for every explicit in-app open/select request, including when
+  // the requested session is already the active tab. This lets the terminal
+  // reclaim focus from the session card or closing dropdown menu.
+  const [terminalFocusRequest, setTerminalFocusRequest] = useState(0);
   const hasBuiltInTerminal = typeof window !== "undefined" && !!window.sshTerm;
 
   // Layout: "dashboard" (current — full-width sessions, terminal pane below)
@@ -132,6 +136,7 @@ export default function Home() {
     const existing = openTerminals.find((t) => t.target.kind === "session" && t.target.sessionId === s.id);
     if (existing) {
       setActiveTerminalKey(existing.key);
+      setTerminalFocusRequest((request) => request + 1);
       return;
     }
     const terminal: OpenTerminal = {
@@ -141,6 +146,7 @@ export default function Home() {
     };
     setActiveTerminalKey(terminal.key);
     setOpenTerminals((prev) => [...prev, terminal]);
+    setTerminalFocusRequest((request) => request + 1);
   }, [hasBuiltInTerminal, openTerminals]);
 
   const openAdHocTerminal = useCallback((opts: {
@@ -163,6 +169,7 @@ export default function Home() {
     };
     setActiveTerminalKey(terminal.key);
     setOpenTerminals((prev) => [...prev, terminal]);
+    setTerminalFocusRequest((request) => request + 1);
   }, [hasBuiltInTerminal]);
 
   const closeTerminal = useCallback((key: string) => {
@@ -629,6 +636,7 @@ export default function Home() {
             <TerminalPane
               terminals={openTerminals}
               activeKey={activeTerminalKey}
+              focusRequest={terminalFocusRequest}
               onActiveKeyChange={setActiveTerminalKey}
               onCloseTab={closeTerminal}
               onCloseAll={closeAllTerminals}
