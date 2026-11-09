@@ -69,7 +69,7 @@ export default function HeaderHostBar({
 
   return (
     <div
-      className="relative flex-[0_1_420px] min-w-[130px]"
+      className="relative flex-[0_1_340px] min-w-[130px]"
       // Track focus for the whole widget (host field + username field), so
       // moving between them keeps the options open.
       onFocus={() => setFocused(true)}

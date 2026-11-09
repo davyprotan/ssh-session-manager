@@ -397,11 +397,14 @@ export default function Home() {
       {/* Header: outer element is the title-bar drag region (drag + double-
           click to zoom). The inner content wrapper carries .app-no-drag, which
           (per the CSS rule in globals.css) makes everything inside it
-          non-draggable so all buttons / inputs / clicks behave normally. The
-          internal flex-1 spacer between nav and search re-asserts drag so the
-          centered area is also draggable. */}
+          non-draggable so all buttons / inputs / clicks behave normally — a
+          fully draggable header broke tab clicks in v0.9.4. The wrapper spans
+          the full width, so the strip around the window buttons and the flex-1
+          spacer re-assert drag; keep both, or double-click-to-zoom has nowhere
+          to land. */}
       <header className="app-drag-region sticky top-0 z-20 border-b" style={{ borderColor: "var(--border)", background: "color-mix(in srgb, var(--background) 85%, transparent)", backdropFilter: "blur(12px)" }}>
-        <div className="app-no-drag w-full pl-24 pr-5 h-14 flex items-center gap-3 max-[800px]:gap-1.5 max-[800px]:pr-3">
+        <div className="app-no-drag w-full pr-5 h-14 flex items-center gap-3 max-[800px]:gap-1.5 max-[800px]:pr-3">
+          <div className="app-drag-region self-stretch shrink-0 w-[84px] max-[800px]:w-[90px]" />
           <button
             onClick={() => { setTab("saved"); setSearch(""); }}
             className="flex items-center gap-2.5 shrink-0 mr-2 rounded-lg px-1 -mx-1 py-1 -my-1 transition-colors hover:bg-accent/40"
@@ -432,7 +435,7 @@ export default function Home() {
               draggable / double-click-to-zoom region. Putting drag-region on
               the whole header risked breaking button clicks; this slice is
               guaranteed to never contain interactive elements. */}
-          <div className="flex-1 min-w-3 self-stretch app-drag-region" />
+          <div className="flex-1 min-w-12 max-[800px]:min-w-2 self-stretch app-drag-region" />
 
           {layout === "dashboard" && (
             <div className="relative w-48 shrink min-w-[72px]">
